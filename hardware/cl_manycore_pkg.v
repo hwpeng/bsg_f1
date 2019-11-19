@@ -17,6 +17,8 @@ package cl_manycore_pkg;
   parameter data_width_p = `CL_MANYCORE_DATA_WIDTH;
   parameter num_tiles_x_p = `CL_MANYCORE_DIM_X;
   parameter num_tiles_y_p = `CL_MANYCORE_DIM_Y;
+  // parameter int hetero_type_vec_p [0:num_tiles_y_p][0:num_tiles_x_p-1]= '{(num_tiles_y_p+1){'{num_tiles_x_p{0}}}};
+  parameter int hetero_type_vec_p [0:num_tiles_y_p][0:num_tiles_x_p-1]= '{'{0,0,0,0},'{0,0,0,0},'{0,0,0,0},'{0,0,0,0},'{0,0,0,3}};
   parameter x_cord_width_p = `BSG_SAFE_CLOG2(num_tiles_x_p);
   parameter y_cord_width_p = `BSG_SAFE_CLOG2(num_tiles_y_p+2);
   parameter load_id_width_p = 12;

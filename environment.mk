@@ -73,6 +73,13 @@ _BSG_MANYCORE_DIR := $(BSG_MANYCORE_DIR)
 undefine BSG_MANYCORE_DIR
 endif
 
+# If DRLP_DIR is set, save it to a temporary variable to check
+# against what is set by Bladrunner and undefine it
+ifdef DRLP_DIR
+_DRLP_DIR := $(DRLP_DIR)
+undefine DRLP_DIR
+endif
+
 # Include project.mk from Bladerunner. This will override
 # BASEJUMP_STL_DIR, and BSG_MANYCORE_DIR
 include $(CL_DIR)/../project.mk
@@ -95,6 +102,15 @@ endif # Matches: ifdef _BSG_MANYCORE_DIR
 # Undefine the temporary variable to prevent its use
 undefine _BSG_MANYCORE_DIR
 endif # Matches: ifneq ("$(wildcard $(CL_DIR)/../project.mk)","")
+
+ifdef _DRLP_DIR
+ifneq ($(_DRLP_DIR), $(DRLP_DIR))
+$(warning $(shell echo -e "$(ORANGE)BSG MAKE WARN: Overriding DRLP_DIR environment variable with Bladerunner defaults.$(NC)"))
+$(warning $(shell echo -e "$(ORANGE)BSG MAKE WARN: DRLP_DIR=$(DRLP_DIR)$(NC)"))
+endif # Matches: ifneq ($(_DRLP_DIR), $(DRLP_DIR))
+endif # Matches: ifdef _DRLP_DIR
+# Undefine the temporary variable to prevent its use
+undefine _DRLP_DIR
 
 # If BASEJUMP_STL_DIR is not defined at this point, raise an error.
 ifndef BASEJUMP_STL_DIR
