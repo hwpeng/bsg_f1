@@ -308,6 +308,7 @@ bsg_manycore_wrapper #(
   ,.data_width_p(data_width_p)
   ,.num_tiles_x_p(num_tiles_x_p)
   ,.num_tiles_y_p(num_tiles_y_p)
+  ,.hetero_type_vec_p(hetero_type_vec_p)
   ,.dmem_size_p(dmem_size_p)
   ,.icache_entries_p(icache_entries_p)
   ,.icache_tag_width_p(icache_tag_width_p)

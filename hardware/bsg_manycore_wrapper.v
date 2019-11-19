@@ -11,6 +11,7 @@ module bsg_manycore_wrapper
 
     , parameter num_tiles_x_p="inv"
     , parameter num_tiles_y_p="inv"
+	, parameter int hetero_type_vec_p [0:num_tiles_y_p][0:num_tiles_x_p-1]="inv"
 
     , parameter dmem_size_p="inv"
     , parameter icache_entries_p="inv"
@@ -67,6 +68,8 @@ module bsg_manycore_wrapper
     ,.stub_e_p({num_tiles_y_p{1'b0}})
     ,.stub_w_p({num_tiles_y_p{1'b0}})
     ,.stub_s_p({num_tiles_x_p{1'b0}})
+	
+	,.hetero_type_vec_p(hetero_type_vec_p)
 
     ,.debug_p(0)
     ,.addr_width_p(addr_width_p)
