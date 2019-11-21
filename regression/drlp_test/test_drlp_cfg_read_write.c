@@ -84,7 +84,7 @@ int test_drlp_cfg_read_write () {
 	bsg_pr_test_info("Writing DRLP configure registers\n");
 
 	int cfg_addr[DRLP_CFG_LEN] = DRLP_CFG_ADDR;
-	uint32_t cfg_fp_conv1[7] = {0x47c10101, BASE_ADDR, BASE_ADDR, 0, 0, 0x00500028, 0x1};
+	uint32_t cfg_fp_conv1[7] = {0x47c10101, BASE_ADDR, BASE_ADDR, 0, 0, 0x00500028, 0x07000001};
 	uint32_t config;
 
 	for (size_t i = 0; i < DRLP_CFG_LEN; i++) {
@@ -101,7 +101,7 @@ int test_drlp_cfg_read_write () {
 	bsg_pr_test_info("Write successful\n");
 
 	// Turn off drlp
-	config = 0;
+	config = config-1;
 	hb_mc_npa_t npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = cfg_addr[DRLP_CFG_LEN-1] };
 	err = hb_mc_manycore_write_mem(mc, &npa, &config, sizeof(config));
 
