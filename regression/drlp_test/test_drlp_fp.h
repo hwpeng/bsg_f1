@@ -35,13 +35,29 @@
 #include <stdlib.h>
 #include "library_tests.h"
 
-#define DRLP_X 3
+#define DRLP_X 3 
 #define DRLP_Y 4
 #define DRAM_X 3
 #define DRAM_Y 5
 
-#define DRLP_CFG_LEN  8
+#define DRLP_CFG_LEN  7
 #define DRLP_CFG_ADDR {0x0000, 0x0004, 0x0008, 0x000C, 0x0010, 0x0014, 0x0018, 0x001C}
+#define DRLP_RST_LEN  8
+#define DRLP_RST_ADDR {0x0020, 0x0024, 0x0028, 0x002C, 0x0030, 0x0034, 0x0038, 0x003C}
+#define DRLP_DONE_ADDR 0x0040
 
-#define ARRAY_LEN 128
-#define BASE_ADDR 0x0000
+#define CONV1_ACT_ADDR 0
+#define CONV1_WGT_ADDR (29*1024)
+#define CONV2_WGT_ADDR (38*1024)
+#define CONV3_WGT_ADDR (71*1024)
+#define FC1_WGT_ADDR (108*1024)
+#define FC2_WGT_ADDR (1722*1024)
+
+#define RMEM_ADDR0 0 
+#define RMEM_ADDR1 12800
+#define RMEM_ADDR2 17984 
+#define RMEM_ADDR3 21120 
+#define RMEM_ADDR4 21632 
+
+
+#define RESULT_ADDR (1725*1024)
