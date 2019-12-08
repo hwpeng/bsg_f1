@@ -124,78 +124,24 @@ int test_drlp_fpbp () {
 	conv2_dx(mc);
 
 	// CONV1_dW
+	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv1_act_bp.vec", "r");
+	write_file(mc, f, CONV1BP_ACT_ADDR*4, 2);
+	fclose(f);
 	conv1_dw(mc);
 
 	/*******************************/
 	/* Read back results from DRAM */
 	/*******************************/
-	uint32_t read_data;
-	uint32_t read_addr;
-	read_addr = FC2BP_DW_ADDR;
-	for (size_t i = 0; i < 16; i++) {
-		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = read_addr*4 + (i*4) };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, dram_coord_x, dram_coord_y, read_addr + i);
-			goto cleanup;
-		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
-	}
-	read_addr = FC1BP_DW_ADDR;
-	for (size_t i = 0; i < 16; i++) {
-		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = read_addr*4 + (i*4) };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, dram_coord_x, dram_coord_y, read_addr + i);
-			goto cleanup;
-		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
-	}
-	read_addr = CONV3BP_DW_ADDR;
-	for (size_t i = 0; i < 16; i++) {
-		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = read_addr*4 + (i*4) };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, dram_coord_x, dram_coord_y, read_addr + i);
-			goto cleanup;
-		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
-	}
-	read_addr = CONV2BP_DW_ADDR;
-	for (size_t i = 0; i < 16; i++) {
-		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = read_addr*4 + (i*4) };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, dram_coord_x, dram_coord_y, read_addr + i);
-			goto cleanup;
-		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
-	}
-	read_addr = CONV1BP_DW_ADDR;
-	for (size_t i = 0; i < 16; i++) {
-		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = read_addr*4 + (i*4) };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, dram_coord_x, dram_coord_y, read_addr + i);
-			goto cleanup;
-		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
-	}
+	bsg_pr_test_info("Read FC2_DW \n");
+	read_dram(mc, FC2BP_DW_ADDR, 16);
+	bsg_pr_test_info("Read FC1_DW \n");
+	read_dram(mc, FC1BP_DW_ADDR, 16);
+	bsg_pr_test_info("Read CONV3_DW \n");
+	read_dram(mc, CONV3BP_DW_ADDR, 16);
+	bsg_pr_test_info("Read CONV2_DW \n");
+	read_dram(mc, CONV2BP_DW_ADDR, 16);
+	bsg_pr_test_info("Read CONV1_DW \n");
+	read_dram(mc, CONV1BP_DW_ADDR, 16);
 	/*******/
 	/* END */
 	/*******/

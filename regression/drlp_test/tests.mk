@@ -40,7 +40,7 @@ SRC_PATH=$(REGRESSION_PATH)/$(REGRESSION_TESTS_TYPE)/
 UNIFIED_TESTS = 
 
 # "Independent Tests" use a per-test <test_name>.c file
-INDEPENDENT_TESTS += test_drlp_bp
+INDEPENDENT_TESTS += test_drlp_fpbp
 
 # REGRESSION_TESTS is a list of all regression tests to run.
 REGRESSION_TESTS = $(UNIFIED_TESTS) $(INDEPENDENT_TESTS)

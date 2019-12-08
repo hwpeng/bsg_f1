@@ -62,6 +62,25 @@ int read_configure(hb_mc_manycore_t *mc, uint32_t config_array[DRLP_CFG_LEN]) {
 	return err;
 }
 
+uint32_t read_rmem(hb_mc_manycore_t *mc, uint32_t rmem_r_addr) {
+	/******************************/
+	/* Read back config from DRLP */
+	/******************************/
+	int err;
+	uint32_t rmem_r_data;
+	uint32_t mc_rmem_r_addr = (DRLP_RMEM_PREFIX+rmem_r_addr)*4;
+
+	hb_mc_npa_t npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = mc_rmem_r_addr };
+	err = hb_mc_manycore_read_mem(mc, &npa, &rmem_r_data, sizeof(rmem_r_data));
+	if (err != HB_MC_SUCCESS) {
+		bsg_pr_err("%s: failed to read from manycore DRLP's RMEM: %s\n", __func__, hb_mc_strerror(err));
+		hb_mc_manycore_exit(mc);
+		return err;
+	}
+
+	return rmem_r_data;
+}
+
 int write_file (hb_mc_manycore_t *mc, FILE *f, uint32_t base_addr, int file_format) {
 	// file_format: 2->binary file, 16-> hex file
 	if (f == NULL) {
@@ -92,6 +111,23 @@ int write_file (hb_mc_manycore_t *mc, FILE *f, uint32_t base_addr, int file_form
 	bsg_pr_test_info("Write file done!\n");
 	return err;
 }
+
+void read_dram (hb_mc_manycore_t *mc, uint32_t base_addr, int len) {
+	uint32_t read_data;
+	int err;
+	for (size_t i = 0; i < len; i++) {
+		hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = base_addr*4 + (i*4) };
+		err = hb_mc_manycore_read_mem(mc, &npa,
+					      &read_data, sizeof(read_data));
+		if (err != HB_MC_SUCCESS) {
+			bsg_pr_err("%s: failed to read A[%d] "
+				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
+				   i, dram_coord_x, dram_coord_y, base_addr + i);
+		}
+		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
+	}
+}
+
 
 int conv1_fp (hb_mc_manycore_t *mc) {
 	int err = HB_MC_SUCCESS;
