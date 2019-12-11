@@ -39,7 +39,7 @@ RED=\033[0;31m
 NC=\033[0m
 
 # Name of this project
-PROJECT = cl_manycore
+PROJECT = cl_manycore_drlp
 
 CL_DIR           := $(shell git rev-parse --show-toplevel)
 HARDWARE_PATH    := $(CL_DIR)/hardware
