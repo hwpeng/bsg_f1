@@ -25,8 +25,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "test_drlp_defines.h"
-#include "test_drlp_libs.h"
+// #include "test_drlp_defines.h"
+// #include "test_drlp_libs.h"
+#include "test_drlp_fpbp.h"
 
 #define TEST_NAME "test_drlp_fpbp"
 
@@ -48,42 +49,42 @@ int test_drlp_fpbp () {
 	/* Writing data to DRAM */
 	/************************/
 	// Write image
-	FILE *f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/dram.vec", "r");
+	FILE *f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/dram.vec", "r");
 	write_file(mc, f, CONV1_ACT_ADDR*4, 2);
 	fclose(f);
 
 	// CONV1
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv1_wgt.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv1_wgt.vec", "r");
 	write_file(mc, f, CONV1_WGT_ADDR*4, 2);
 	fclose(f);
 	conv1_fp(mc);
 
 	// CONV2
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv2_wgt.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv2_wgt.vec", "r");
 	write_file(mc, f, CONV2_WGT_ADDR*4, 2);
 	fclose(f);
 	conv2_fp(mc);
 
 	// CONV3
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv3_wgt.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv3_wgt.vec", "r");
 	write_file(mc, f, CONV3_WGT_ADDR*4, 2);
 	fclose(f);
 	conv3_fp(mc);
 
 	// FC1 
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/fc1_wgt.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/fc1_wgt.vec", "r");
 	write_file(mc, f, FC1_WGT_ADDR*4, 2);
 	fclose(f);
 	fc1_fp(mc);
 
 	// FC2
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/fc2_wgt.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/fc2_wgt.vec", "r");
 	write_file(mc, f, FC2_WGT_ADDR*4, 2);
 	fclose(f);
 	fc2_fp(mc);
 
 	// Write out gd
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/out_gd.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/out_gd.vec", "r");
 	write_file(mc, f, OUT_GD_ADDR*4, 2);
 	fclose(f);
 
@@ -91,7 +92,7 @@ int test_drlp_fpbp () {
 	fc2_dw(mc);
 
 	// FC2_dX 
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/fc2_wgt_bp.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/fc2_wgt_bp.vec", "r");
 	write_file(mc, f, FC2BP_WGT_ADDR*4, 2);
 	fclose(f);
 	fc2_dx(mc);
@@ -100,7 +101,7 @@ int test_drlp_fpbp () {
 	fc1_dw(mc);
 
 	// FC1_dX 
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/fc1_wgt_bp.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/fc1_wgt_bp.vec", "r");
 	write_file(mc, f, FC1BP_WGT_ADDR*4, 2);
 	fclose(f);
 	fc1_dx(mc);
@@ -109,7 +110,7 @@ int test_drlp_fpbp () {
 	conv3_dw(mc);
 
 	// CONV3_dX 
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv3_wgt_bp.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv3_wgt_bp.vec", "r");
 	write_file(mc, f, CONV3BP_WGT_ADDR*4, 2);
 	fclose(f);
 	conv3_dx(mc);
@@ -118,13 +119,13 @@ int test_drlp_fpbp () {
 	conv2_dw(mc);
 
 	// CONV2_dX 
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv2_wgt_bp.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv2_wgt_bp.vec", "r");
 	write_file(mc, f, CONV2BP_WGT_ADDR*4, 2);
 	fclose(f);
 	conv2_dx(mc);
 
 	// CONV1_dW
-	f = fopen("/mnt/users/ssd1/homes/huwan/drlp_software/debug_weights/conv1_act_bp.vec", "r");
+	f = fopen("/mnt/users/ssd1/homes/huwan/debug_weights/conv1_act_bp.vec", "r");
 	write_file(mc, f, CONV1BP_ACT_ADDR*4, 2);
 	fclose(f);
 	conv1_dw(mc);
@@ -133,15 +134,29 @@ int test_drlp_fpbp () {
 	/* Read back results from DRAM */
 	/*******************************/
 	bsg_pr_test_info("Read FC2_DW \n");
-	read_dram(mc, FC2BP_DW_ADDR, 16);
+	f = fopen("/mnt/users/ssd1/homes/huwan/bsg_bladerunner/bsg_f1/regression/drlp_test/result/fc2_dw.vec", "w");
+	dram2file(mc, f, FC2BP_DW_ADDR, 16);
+	fclose(f);
+
 	bsg_pr_test_info("Read FC1_DW \n");
-	read_dram(mc, FC1BP_DW_ADDR, 16);
+	f = fopen("/mnt/users/ssd1/homes/huwan/bsg_bladerunner/bsg_f1/regression/drlp_test/result/fc1_dw.vec", "w");
+	dram2file(mc, f, FC1BP_DW_ADDR, 16);
+	fclose(f);
+
 	bsg_pr_test_info("Read CONV3_DW \n");
-	read_dram(mc, CONV3BP_DW_ADDR, 16);
+	f = fopen("/mnt/users/ssd1/homes/huwan/bsg_bladerunner/bsg_f1/regression/drlp_test/result/conv3_dw.vec", "w");
+	dram2file(mc, f, CONV3BP_DW_ADDR, 16);
+	fclose(f);
+
 	bsg_pr_test_info("Read CONV2_DW \n");
-	read_dram(mc, CONV2BP_DW_ADDR, 16);
+	f = fopen("/mnt/users/ssd1/homes/huwan/bsg_bladerunner/bsg_f1/regression/drlp_test/result/conv2_dw.vec", "w");
+	dram2file(mc, f, CONV2BP_DW_ADDR, 16);
+	fclose(f);
+
 	bsg_pr_test_info("Read CONV1_DW \n");
-	read_dram(mc, CONV1BP_DW_ADDR, 16);
+	f = fopen("/mnt/users/ssd1/homes/huwan/bsg_bladerunner/bsg_f1/regression/drlp_test/result/conv1_dw.vec", "w");
+	dram2file(mc, f, CONV1BP_DW_ADDR, 16);
+	fclose(f);
 	/*******/
 	/* END */
 	/*******/

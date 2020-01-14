@@ -39,6 +39,11 @@
 # BSG_MANYCORE_DIR: Path to a clone of BSG Manycore
 # CL_DIR: Path to the directory of this AWS F1 Project
 include ../../environment.mk
+# HARDWARE_PATH    = /home/centos/bsg_bladerunner/bsg_f1/hardware
+# REGRESSION_PATH  = /home/centos/bsg_bladerunner/bsg_f1/regression
+# TESTBENCH_PATH   = /home/centos/bsg_bladerunner/bsg_f1/testbenches
+# LIBRARIES_PATH   = /home/centos/bsg_bladerunner/bsg_f1/libraries
+# BSG_MACHINE_PATH = /home/centos/bsg_bladerunner/bsg_f1
 
 # tests.mk defines all of the regression tests (and the source path) for this
 # sub-directory. It defines the variable REGRESSION_TESTS_TYPE
@@ -57,3 +62,8 @@ include $(REGRESSION_PATH)/f1.mk
 # in this sub-directory. rules.mk must come after f1.mk so that
 # <test_name>.rule and <test_name>.clean are not overwritten.
 include rules.mk
+
+# The rule below defines how to run all library tests
+INDEPENDENT_LOGS=$(foreach tgt,$(INDEPENDENT_TESTS),$(EXEC_PATH)/$(tgt).log)
+$(INDEPENDENT_LOGS): $(EXEC_PATH)/%.log: $(EXEC_PATH)/%
+	sudo $< | tee $@
