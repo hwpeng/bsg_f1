@@ -36,7 +36,7 @@ SRC_PATH=$(REGRESSION_PATH)/$(REGRESSION_TESTS_TYPE)/
 UNIFIED_TESTS = 
 
 # "Independent Tests" use a per-test <test_name>.c file
-INDEPENDENT_TESTS += test_drlp_fpbp
+INDEPENDENT_TESTS += test_drlp_dqn_all
 
 # REGRESSION_TESTS is a list of all regression tests to run.
 REGRESSION_TESTS = $(UNIFIED_TESTS) $(INDEPENDENT_TESTS)
@@ -49,6 +49,10 @@ DEFINES += -D_XOPEN_SOURCE=500 -D_BSD_SOURCE
 CDEFINES   += $(DEFINES)
 CXXDEFINES += $(DEFINES)
 
-FLAGS     = -g -Wall
-CFLAGS   += -std=c99 $(FLAGS) 
-CXXFLAGS += -std=c++11 $(FLAGS)
+# FLAGS     = -g -Wall
+# CFLAGS   += -std=c99 $(FLAGS) 
+# CXXFLAGS += -std=c++11 $(FLAGS)
+FLAGS     = -g -Wall $(shell python3.6-config --cflags) -O1 
+CFLAGS   += -std=c99 $(FLAGS)
+CXXFLAGS += -std=c++11 $(FLAGS) 
+LDFLAGS  += $(shell python3.6-config --ldflags) 

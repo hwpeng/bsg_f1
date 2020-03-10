@@ -31,6 +31,15 @@
 #include <bsg_manycore_loader.h>
 #include <bsg_manycore_errno.h>	
 #include <bsg_manycore_printing.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <string.h>
+#include <time.h>
+#include <stdlib.h>
+#include "spmd_tests.h"
+#include "cuda_tests.h"
 
 #include "../cl_manycore_regression.h"
 
@@ -49,6 +58,8 @@
 #include <bsg_manycore_printing.h>
 #include <inttypes.h>
 
+#define hex(X) (*(int*)&X)
+#define flt(X) (*(float*)&X)
 
 #define DRLP_X 3 
 #define DRLP_Y 4
@@ -56,9 +67,9 @@
 #define DRAM_Y 5
 
 #define DRLP_CFG_LEN  7
-#define DRLP_CFG_ADDR {0x0000, 0x0004, 0x0008, 0x000C, 0x0010, 0x0014, 0x0018, 0x001C}
-#define DRLP_DONE_ADDR 0x0020
-#define DRLP_RMEM_PREFIX 0x8000
+#define DRLP_CFG_ADDR {0xFC0000, 0xFC0004, 0xFC0008, 0xFC000C, 0xFC0010, 0xFC0014, 0xFC0018, 0xFC001C}
+#define DRLP_DONE_ADDR 0xFC0020
+#define DRLP_RMEM_PREFIX 0xFC8000
 
 #define CONV1_ACT_ADDR 0
 #define CONV1_WGT_ADDR (29*1024)
@@ -90,6 +101,20 @@ static const uint32_t cfg_addr[DRLP_CFG_LEN] = DRLP_CFG_ADDR;
 static const uint32_t dram_coord_x = DRAM_X;
 static const uint32_t dram_coord_y = DRAM_Y;
 
+void write_dram_float(hb_mc_manycore_t *mc, uint32_t addr, float number) {
+	uint32_t num_int = hex(number);
+	hb_mc_npa_t npa = {.x = dram_coord_x, .y = dram_coord_y, .epa = addr*4};
+	int rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
+	if (rc != HB_MC_SUCCESS) {
+		bsg_pr_err("%s: failed to write 0x%08" PRIx32 " "
+			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
+			   __func__,  num_int,
+			   dram_coord_x, dram_coord_y,
+			   addr);
+		hb_mc_manycore_exit(mc);
+	}
+}
+
 int write_configure(hb_mc_manycore_t *mc, uint32_t config_array[DRLP_CFG_LEN]) {
 	uint32_t config;
 	int err;
@@ -103,7 +128,7 @@ int write_configure(hb_mc_manycore_t *mc, uint32_t config_array[DRLP_CFG_LEN]) {
 			return err;
 		}
 	}
-	bsg_pr_test_info("Write configure successful\n");
+	// bsg_pr_test_info("Write configure successful\n");
 	// Turn off drlp
 	config = config-1;
 	hb_mc_npa_t npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = cfg_addr[DRLP_CFG_LEN-1] };
@@ -191,7 +216,7 @@ int write_file (hb_mc_manycore_t *mc, FILE *f, uint32_t base_addr, int file_form
 	return err;
 }
 
-void read_dram (hb_mc_manycore_t *mc, uint32_t base_addr, int len) {
+void read_dram (hb_mc_manycore_t *mc, uint32_t base_addr, int len, float *read_float, bool print) {
 	uint32_t read_data;
 	int err;
 	for (size_t i = 0; i < len; i++) {
@@ -203,7 +228,9 @@ void read_dram (hb_mc_manycore_t *mc, uint32_t base_addr, int len) {
 				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
 				   i, dram_coord_x, dram_coord_y, base_addr + i);
 		}
-		bsg_pr_test_info("Read result(%d) %x \n", i, read_data);
+		read_float[i] = flt(read_data);
+		if (print)
+			bsg_pr_test_info("Read result(%d) %1.4f(%x) \n", i, read_float[i], read_data);
 	}
 }
 
@@ -533,3 +560,143 @@ int conv1_dw (hb_mc_manycore_t *mc) {
 	}
 	return err;
 }
+
+int dw_simple_test (hb_mc_manycore_t *mc, uint32_t dY_base_addr, uint32_t X_base_addr, uint32_t R_base_addr) {
+	int err = HB_MC_SUCCESS;
+	uint32_t config[DRLP_CFG_LEN] = {0xC7800203, dY_base_addr, X_base_addr, R_base_addr, 270, 0x0020002c, 0x5700089B}; // 270 could be any numbers
+	uint32_t done = 0;
+	err = write_configure(mc, config);
+	// Wait for stop
+	hb_mc_npa_t done_npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = DRLP_DONE_ADDR };
+	while (done != 1) {
+		for (int i=0; i<999; i++){}
+		hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
+	}
+	bsg_pr_test_info("dW simple test DONE\n");
+	return err;
+}
+
+int fc_simple_test (hb_mc_manycore_t *mc, uint32_t X_base_addr, uint32_t W_base_addr, uint32_t Y_base_addr) {
+	int err = HB_MC_SUCCESS;
+	uint32_t config[DRLP_CFG_LEN] = {0x84C0011D, X_base_addr, W_base_addr, Y_base_addr, 0, 0x02D00028, 0x4700009B};
+	// FC mode, stride=1, relu=1, x=0, z=1, y=29, pe_on=3
+	// img_w_count=540/6, layer=4.  
+	uint32_t done = 0;
+	err = write_configure(mc, config);
+	// Wait for stop
+	hb_mc_npa_t done_npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = DRLP_DONE_ADDR };
+	while (done != 1) {
+		for (int i=0; i<999; i++){}
+		hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
+	}
+	bsg_pr_test_info("FC simple test DONE\n");
+	return err;
+}
+
+static int read_program_file(const char *file_name, unsigned char **file_data, size_t *file_size)
+{
+        struct stat st;
+        FILE *f;
+        int r;
+        unsigned char *data;
+
+        if ((r = stat(file_name, &st)) != 0) {
+                bsg_pr_err("could not stat '%s': %m\n", file_name);
+                return HB_MC_FAIL;
+        }
+
+        if (!(f = fopen(file_name, "rb"))) {
+                bsg_pr_err("failed to open '%s': %m\n", file_name);
+                return HB_MC_FAIL;
+        }
+
+        if (!(data = (unsigned char *) malloc(st.st_size))) {
+                bsg_pr_err("failed to read '%s': %m\n", file_name);
+                fclose(f);
+                return HB_MC_FAIL;
+        }
+
+        if ((r = fread(data, st.st_size, 1, f)) != 1) {
+                bsg_pr_err("failed to read '%s': %m\n", file_name);
+                fclose(f);
+                free(data);
+                return HB_MC_FAIL;
+        }
+
+        fclose(f);
+        *file_data = data;
+        *file_size = st.st_size;
+        return HB_MC_SUCCESS;
+}
+
+/* Execute func(x, y) in the Python interpreter. The 
+arguments and return result of the function must 
+be Python floats */
+// 
+// double call_func(PyObject *func, double x, double y) 
+// { 
+// 	PyObject *args; 
+// 	PyObject *kwargs; 
+// 	PyObject *result = 0; 
+// 	double retval; 
+// 	
+// 	// Make sure we own the GIL 
+// 	PyGILState_STATE state = PyGILState_Ensure(); 
+// 	
+// 	
+// 	// Verify that func is a proper callable 
+// 	if (!PyCallable_Check(func)) 
+// 	{ 
+// 		fprintf(stderr, "call_func: expected a callable\n"); 
+// 		goto fail; 
+// 	} 
+// 
+//     // Step3 
+//     args = Py_BuildValue("(dd)", x, y); 
+//     kwargs = NULL; 
+//       
+//     // Step 4 
+//     result = PyObject_Call(func, args, kwargs); 
+//     Py_DECREF(args); 
+//     Py_XDECREF(kwargs); 
+//       
+//     // Step 5 
+//     if (PyErr_Occurred()) 
+//     { 
+//         PyErr_Print(); 
+//         goto fail; 
+//     } 
+//       
+//     // Verify the result is a float object  
+//     if (!PyFloat_Check(result)) 
+//     { 
+//         fprintf(stderr, "call_func: callable didn't return a float\n"); 
+//         goto fail; 
+//     } 
+//       
+//     // Step 6 
+//     retval = PyFloat_AsDouble(result); 
+//     Py_DECREF(result); 
+//       
+//     // Step 7 
+//     PyGILState_Release(state); 
+//     return retval; 
+//     fail: 
+//         Py_XDECREF(result); 
+//         PyGILState_Release(state); 
+//         abort();  
+// } 
+// /* Definition of call_func() same as above */
+// 
+// /* Load a symbol from a module */
+// PyObject *import_name(const char *modname, const char *symbol) 
+// { 
+// 	PyObject *u_name, *module; 
+// 	u_name = PyUnicode_FromString(modname); 
+// 	module = PyImport_Import(u_name); 
+// 	Py_DECREF(u_name); 
+// 	
+// 	return PyObject_GetAttrString(module, symbol); 
+// } 
+// 
+
