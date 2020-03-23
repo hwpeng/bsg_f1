@@ -59,7 +59,7 @@ void host_fc_dw (float *dy, float *x, float *dw, int x_num, int y_num) {
 			t0 = dy[i];
 			t1 = x[j];
 			t3 = dw[i*x_num+j];  
-			// printf("Host: dw[%d](%x) = dy[%d](%x)*x[%d](%x) \n", i*x_num+j, hex(t3), i, hex(t0), j, hex(t1));
+            // printf("Host: dw[%d](%x) = dy[%d](%x)*x[%d](%x) \n", i*x_num+j, hex(t3), i, hex(t0), j, hex(t1));
 		}
 	}
 }
@@ -109,21 +109,22 @@ int host_train (float *state, float *next_state, float reward, int done, float *
 	for (int i = 0; i < action_size; i++) { 
 		if (next_values[i] > next_values[next_max_index])
 			next_max_index = i;
-		// bsg_pr_test_info("Host Train: next_value[%d]=%f\n", i, next_values[i]);
+        bsg_pr_test_info("Host Train: next_value[%d]=%f\n", i, next_values[i]);
 	}
 	// state
 	host_fp(state, fc1_w, fc1_b, fc2_w, fc2_b, fc1_y, state_values, state_size, fc1_y_size, action_size);
-	// for (int i = 0; i < action_size; i++) { 
-	// 	bsg_pr_test_info("Host Train: state_value[%d]=%f\n", i, state_values[i]);
-	// }
+    for (int i = 0; i < action_size; i++) { 
+        bsg_pr_test_info("Host Train: state_value[%d]=%f\n", i, state_values[i]);
+    }
 
 	// Loss function
 	float target = reward + gamma*next_values[next_max_index];
 	float fc2_dy[2]={0.0};
-	fc2_dy[next_max_index] = next_values[next_max_index] - state_values[next_max_index]; // MSE loss function
-	// for (int i = 0; i < action_size; i++) { 
-	// 	bsg_pr_test_info("Host Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
-	// }
+	fc2_dy[next_max_index] = target - state_values[next_max_index]; // MSE loss function
+    bsg_pr_test_info("HOST Train: reward=%f\n", reward);
+    for (int i = 0; i < action_size; i++) { 
+        bsg_pr_test_info("Host Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
+    }
 
 	// BP
 	float host_fc2_dw[fc1_y_size*action_size];
@@ -133,7 +134,11 @@ int host_train (float *state, float *next_state, float reward, int done, float *
 	// compare
 	int mismatch=0;
 	mismatch = host_compare (host_fc2_dw, fc2_dw, (fc1_y_size*action_size));
+    if (mismatch==1)
+        bsg_pr_err("fc2_dw has error!\n");
 	mismatch = host_compare (host_fc1_dw, fc1_dw, (state_size*fc1_y_size));
+    if (mismatch==1)
+        bsg_pr_err("fc1_dw has error!\n");
 	return mismatch;
 }
 

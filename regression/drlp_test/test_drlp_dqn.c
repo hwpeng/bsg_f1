@@ -29,38 +29,15 @@
 #define TEST_NAME "test_drlp_dqn"
 #define ALLOC_NAME "default_allocator"
 
-int cuda_optimizer (hb_mc_device_t device, char *bin_path, float *w, float *dw, int w_num, float lr) {
-    /*****************************************************************************************************************
-    * CUDA optimizer 
-    ******************************************************************************************************************/
-	hb_mc_manycore_t *mc = device.mc;
+int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t dw_device, eva_t w_new_device, float *w, float *dw, int w_num, float lr) {
 	int rc;
     rc = hb_mc_device_program_init(&device, bin_path, ALLOC_NAME, 0);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize program.\n");
             return rc;
     }
-	else {
-		bsg_pr_test_info("Initialize program %s. \n", bin_path);
-	}
-
-    /* Allocate memory on the device for W, dW, and W_NEW */
-	bsg_pr_test_info("========Allocate memory on device========\n");
-    eva_t w_device, dw_device, w_new_device; 
-    rc = hb_mc_device_malloc(&device, w_num * sizeof(uint32_t), &w_device); 
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to allocate memory on device.\n");
-            return rc;
-    }
-    rc = hb_mc_device_malloc(&device, w_num * sizeof(uint32_t), &dw_device); 
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to allocate memory on device.\n");
-            return rc;
-    }
-    rc = hb_mc_device_malloc(&device, w_num * sizeof(uint32_t), &w_new_device); 
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to allocate memory on device.\n");
-            return rc;
+    else {
+        bsg_pr_test_info("Initialize program %s. \n", bin_path);
     }
 
     /* Copy W & dW from host onto device DRAM (eva) */
@@ -98,7 +75,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, float *w, float *dw, 
     int cuda_argv[6] = {w_device, dw_device, w_new_device, lr, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
-	bsg_pr_test_info("========Enqueue and excute cuda kernel========\n");
+	bsg_pr_test_info("========Enqueue cuda kernel========\n");
     rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 6, cuda_argv);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize grid.\n");
@@ -106,6 +83,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, float *w, float *dw, 
     }
 
     /* Launch and execute all tile groups on device and wait for all to finish.  */
+	bsg_pr_test_info("========Excute cuda kernel========\n");
     rc = hb_mc_device_tile_groups_execute(&device);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to execute tile groups.\n");
@@ -134,20 +112,6 @@ int test_drlp_dqn (int argc, char **argv) {
 	char *game_name="CartPole-v1";
 	PyObject *pinst;
 	pinst = py_init(game_name); // Initialize python class instance and method
-
-    /*****************************************************************************************************************
-    * Initialize device 
-    ******************************************************************************************************************/
-	int rc;
-	char *bin_path;
-	bin_path = "/mnt/users/ssd1/homes/huwan/bsg/bsg_bladerunner/bsg_manycore/software/spmd/bsg_cuda_lite_runtime/drlp_cuda/main.riscv";
-    hb_mc_device_t device;
-    rc = hb_mc_device_init(&device, TEST_NAME, 0);
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to initialize device.\n");
-            return rc;
-    }
-	hb_mc_manycore_t *mc = device.mc;
 
     /*****************************************************************************************************************
     * NN configuration 
@@ -184,6 +148,69 @@ int test_drlp_dqn (int argc, char **argv) {
 	FC_layer nn[2] = {FC1, FC2};
 
     /*****************************************************************************************************************
+    * Initialize device 
+    ******************************************************************************************************************/
+	int rc;
+	char *bin_path;
+	/* bin_path = "/mnt/users/ssd1/homes/huwan/bsg/bsg_bladerunner/bsg_manycore/software/spmd/bsg_cuda_lite_runtime/drlp_cuda/main.riscv"; */
+	bin_path = "../../../bsg_manycore/software/spmd/bsg_cuda_lite_runtime/drlp_cuda/main.riscv";
+    hb_mc_device_t device;
+    rc = hb_mc_device_init(&device, TEST_NAME, 0);
+    if (rc != HB_MC_SUCCESS) { 
+            bsg_pr_err("failed to initialize device.\n");
+            return rc;
+    }
+	hb_mc_manycore_t *mc = device.mc;
+
+    /*****************************************************************************************************************
+    * CUDA optimizer 
+    ******************************************************************************************************************/
+    rc = hb_mc_device_program_init(&device, bin_path, ALLOC_NAME, 0);
+    if (rc != HB_MC_SUCCESS) { 
+            bsg_pr_err("failed to initialize program.\n");
+            return rc;
+    }
+	else {
+		bsg_pr_test_info("Initialize program %s. \n", bin_path);
+	}
+
+    /* Allocate memory on the device for W, dW, and W_NEW */
+	bsg_pr_test_info("========Allocate memory on device========\n");
+    eva_t w1_opt_eva, dw1_opt_eva, w1_new_opt_eva; 
+    eva_t b1_opt_eva, db1_opt_eva, b1_new_opt_eva; 
+    eva_t w2_opt_eva, dw2_opt_eva, w2_new_opt_eva; 
+    eva_t b2_opt_eva, db2_opt_eva, b2_new_opt_eva; 
+    hb_mc_device_malloc(&device, FC1_W_SIZE * sizeof(uint32_t), &w1_opt_eva); 
+    hb_mc_device_malloc(&device, FC1_W_SIZE * sizeof(uint32_t), &dw1_opt_eva); 
+    hb_mc_device_malloc(&device, FC1_W_SIZE * sizeof(uint32_t), &w1_new_opt_eva); 
+    hb_mc_device_malloc(&device, FC1_Y_SIZE * sizeof(uint32_t), &b1_opt_eva); 
+    hb_mc_device_malloc(&device, FC1_Y_SIZE * sizeof(uint32_t), &db1_opt_eva); 
+    hb_mc_device_malloc(&device, FC1_Y_SIZE * sizeof(uint32_t), &b1_new_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_W_SIZE * sizeof(uint32_t), &w2_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_W_SIZE * sizeof(uint32_t), &dw2_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_W_SIZE * sizeof(uint32_t), &w2_new_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_Y_SIZE * sizeof(uint32_t), &b2_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_Y_SIZE * sizeof(uint32_t), &db2_opt_eva); 
+    hb_mc_device_malloc(&device, FC2_Y_SIZE * sizeof(uint32_t), &b2_new_opt_eva); 
+
+    /* Allocate memory on the device for replay memory*/
+    hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
+    eva_t re_mem_eva;
+    hb_mc_npa_t re_mem_npa;
+    hb_mc_idx_t re_mem_x, re_mem_y;
+    hb_mc_epa_t re_mem_epa;
+
+    hb_mc_device_malloc(&device, re_mem_size, &re_mem_eva); 
+    hb_mc_eva_to_npa(mc, &default_map, &target, &re_mem_eva, &re_mem_npa, &re_mem_size);
+    re_mem_x = hb_mc_npa_get_x(&re_mem_npa);
+    re_mem_y = hb_mc_npa_get_y(&re_mem_npa);
+    re_mem_epa = hb_mc_npa_get_epa(&re_mem_npa);
+    
+    bsg_pr_test_info("Replay memory: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, 0x%x)\n", hb_mc_eva_addr(&re_mem_eva), re_mem_x, re_mem_y, re_mem_epa);
+
+
+    /*****************************************************************************************************************
     * Weight random initialization and write to dram
     ******************************************************************************************************************/
 	// On the host
@@ -213,7 +240,7 @@ int test_drlp_dqn (int argc, char **argv) {
 	for (int i = 0; i < RE_MEM_INIT_SIZE; i++) {
 		trans.action = rand() % ACTION_SIZE;
 		call_step(&trans, pinst);
-		position = re_mem_push(mc, &trans, position);
+		position = re_mem_push(mc, re_mem_npa, &trans, position);
 		if (trans.done==0) {
 			for (int j=0; j<STATE_SIZE; j++)
 				trans.state[j] = trans.next_state[j];
@@ -246,8 +273,8 @@ int test_drlp_dqn (int argc, char **argv) {
 	bool re_mem_full = false;
 	bool compare_host = true;
 	Transition sample_trans;
-	float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_Y_SIZE];
-	float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_Y_SIZE];
+	float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_Y_SIZE] = {0.0};
+	float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_Y_SIZE] = {0.0};
 	float host_fc2_w_new[FC2_W_SIZE];
 	float host_fc1_w_new[FC1_W_SIZE];
 	for (int step = 0; step < STEP_MAX; step++) {
@@ -260,13 +287,13 @@ int test_drlp_dqn (int argc, char **argv) {
 
 		// Push to replay memory 
 		bsg_pr_test_info("Push to replay memory\n");
-		position = re_mem_push(mc, &trans, position);
+		position = re_mem_push(mc, re_mem_npa, &trans, position);
 		if (position == 0)
 			re_mem_full = true;
 		if (re_mem_full)
 			num_trans = RE_MEM_SIZE;
 		else
-			num_trans = position+1;
+			num_trans = position;
 
 		if (trans.done==0) {
 			for (int j=0; j<STATE_SIZE; j++)
@@ -284,39 +311,46 @@ int test_drlp_dqn (int argc, char **argv) {
 
 			// Sample from replay memory
 			bsg_pr_test_info("Sample from replay memory\n");
-			re_mem_sample(mc, &sample_trans, num_trans);
+			re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
 
 			// Train
-			dqn_train(mc, &sample_trans, nn, num_layer, 0.95);
-			read_dw(mc, FC2_dW, FC2_dW_ADDR+1, FC1_Y_SIZE, ACTION_SIZE);
-			read_dw(mc, FC1_dW, FC1_dW_ADDR+1, STATE_SIZE, FC1_Y_SIZE);
+			dqn_train(mc, &sample_trans, nn, num_layer, FC2_dB, 0.95);
+			read_dw(mc, FC2_dW, FC2);
+			read_dw(mc, FC1_dW, FC1);
+			read_db(mc, FC1_dB, FC1);
 			if (HOST_COMPARE) {
 				rc = host_train(sample_trans.state, sample_trans.next_state, sample_trans.reward, sample_trans.done, FC1_W, FC1_B, FC2_W, FC2_B, FC2_WT, FC2_dW, FC1_dW, STATE_SIZE, FC1_Y_SIZE, ACTION_SIZE); 
-				if (rc==1)
-					bsg_pr_err("Step%d, BP has error!\n", step);
+				/* if (rc==1) */
+					/* bsg_pr_err("Step%d, BP has error!\n", step); */
 				host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
 				host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
 			}
 
 			// Optimizer
-			cuda_optimizer(device, bin_path, FC2_W, FC2_dW, FC2_W_SIZE, LR);
-			cuda_optimizer(device, bin_path, FC1_W, FC1_dW, FC1_W_SIZE, LR);
+			// cuda_optimizer(device, bin_path, w2_opt_eva, dw2_opt_eva, w2_new_opt_eva, FC2_W, FC2_dW, FC2_W_SIZE, LR);
+			// cuda_optimizer(device, bin_path, w1_opt_eva, dw1_opt_eva, w1_new_opt_eva, FC1_W, FC1_dW, FC1_W_SIZE, LR);
+			// cuda_optimizer(device, bin_path, b2_opt_eva, db2_opt_eva, b2_new_opt_eva, FC2_B, FC2_dB, FC2_Y_SIZE, LR);
+			// cuda_optimizer(device, bin_path, b1_opt_eva, db1_opt_eva, b1_new_opt_eva, FC1_B, FC1_dB, FC1_Y_SIZE, LR);
+			// /* for (int i = 0; i < FC1_Y_SIZE; i++)  */
+            //     /* bsg_pr_test_info("F1_B[%d]=%f\n", i, FC1_B[i]); */
 
-			if (HOST_COMPARE) {
-				rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
-				rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
-				if (rc==1)
-					bsg_pr_err("Step%d, optimizer has error!\n", step);
-			}
-			// Write new weight to DRAM
-			base_addr = FC1_W_ADDR;
-			fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
-			base_addr = FC2_W_ADDR;
-			fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
+			// if (HOST_COMPARE) {
+			// 	rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
+			// 	rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
+			// 	if (rc==1)
+			// 		bsg_pr_err("Step%d, optimizer has error!\n", step);
+			// }
+			// // Write new weight to DRAM
+			// base_addr = FC1_W_ADDR;
+			// fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
+			// base_addr = FC2_W_ADDR;
+			// fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
 
 		}
 	}
-	
+    float read_float[2000];
+    read_dram(mc, 46199, 2000, read_float, true);	
+
     /* Freeze the tiles and memory manager cleanup. */
 	Py_DECREF(pinst);	
     Py_Finalize(); 

@@ -19,6 +19,7 @@ def process_frame84(frame):
 class gym_env:
     def __init__(self, name="CartPole-v1"):
         self.env = gym.make(name)
+        self.env.seed(2020)
         self.name = name
         self.obs_space = self.env.observation_space.shape[0]
         self.act_space = self.env.action_space.n

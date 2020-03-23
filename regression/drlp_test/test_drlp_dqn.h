@@ -37,7 +37,7 @@
 #define RE_MEM_SIZE 5000
 #define RE_MEM_INIT_SIZE 1
 #define TRANSITION_SIZE 2*STATE_SIZE+3
-#define STEP_MAX 0
+#define STEP_MAX 2
 #define TRAIN_FREQ 1
 
 // Manycore
@@ -177,22 +177,26 @@ void call_step(Transition *trans, PyObject *pinst) {
 * For Replay Memory 
 ******************************************************************************************************************/
 
-uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position) {
+uint32_t re_mem_push(hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, Transition *trans, uint32_t position) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
+
 	int rc;
 	float number;
 	uint32_t num_int;
 	uint32_t trans_size = TRANSITION_SIZE;
-	uint32_t addr = (position*trans_size);
+	uint32_t addr = re_mem_epa + (position*trans_size);
 	// State
 	for (int i=0; i<STATE_SIZE; i++) {
 		number = trans->state[i];
 		num_int = hex(number);
-		hb_mc_npa_t npa = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+		hb_mc_npa_t npa = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 		rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
 		if (rc != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to write state 0x%08" PRIx32 " "
 				   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+				   __func__, num_int, re_mem_x, re_mem_y, addr);
 			hb_mc_manycore_exit(mc);
 		}
 		addr++;
@@ -202,12 +206,12 @@ uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position)
 	for (int i=0; i<STATE_SIZE; i++) {
 		number = trans->next_state[i];
 		num_int = hex(number);
-		hb_mc_npa_t npa = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+		hb_mc_npa_t npa = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 		rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
 		if (rc != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to write next_state 0x%08" PRIx32 " "
 				   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+				   __func__, num_int, re_mem_x, re_mem_y, addr);
 			hb_mc_manycore_exit(mc);
 		}
 		addr++;
@@ -215,36 +219,36 @@ uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position)
 
 	// Action
 	num_int = trans->action;
-	hb_mc_npa_t npa0 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa0 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa0, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write action 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 	addr++;
 
 	// Reward
 	num_int = hex(trans->reward);
-	hb_mc_npa_t npa1 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa1 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa1, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write reward 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 	addr++;
 
 	// Done
 	num_int = trans->done;
-	hb_mc_npa_t npa2 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa2 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa2, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write done 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 
@@ -254,17 +258,20 @@ uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position)
 		return position+1;
 }
 
-int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
+int re_mem_sample(hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, Transition *trans, uint32_t size) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
 	uint32_t position = (rand()%size);
 	uint32_t trans_size = TRANSITION_SIZE;
-	uint32_t addr = position*trans_size;
+	uint32_t addr = re_mem_epa + (position*trans_size);
 	uint32_t num_int;
 	int err;
-	// printf("Sample %dth transition from replay memory addr%d.\n", position, addr);
+    // printf("Sample %dth transition from replay memory addr%d.\n", position, addr);
 
 	// State
 	for (int i=0; i<STATE_SIZE; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4 };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = addr*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa, &num_int, sizeof(num_int));
 		trans->state[i] = flt(num_int);
 		if (err != HB_MC_SUCCESS) {
@@ -272,12 +279,13 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 			hb_mc_manycore_exit(mc);
 			return err;
 		}
+        // printf("Read state(%d)%f from epa(%d).\n", i, flt(num_int), addr*4);
 		addr++;
 	}
 
 	// Next state
 	for (int i=0; i<STATE_SIZE; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4 };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = addr*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa, &num_int, sizeof(num_int));
 		trans->next_state[i] = flt(num_int);
 		if (err != HB_MC_SUCCESS) {
@@ -289,7 +297,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	}
 
 	// Action
-	hb_mc_npa_t npa0 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa0 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa0, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from replay memory: %s\n", __func__, hb_mc_strerror(err));
@@ -300,7 +308,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	addr++;
 
 	// Reward
-	hb_mc_npa_t npa1 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa1 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa1, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from manycore DMEM: %s\n", __func__, hb_mc_strerror(err));
@@ -311,7 +319,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	addr++;
 
 	// Done
-	hb_mc_npa_t npa2 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa2 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa2, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from manycore DMEM: %s\n", __func__, hb_mc_strerror(err));
@@ -323,17 +331,20 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	return err;
 }
 
-void read_re_mem (hb_mc_manycore_t *mc, uint32_t base_addr, int len) {
+void read_re_mem (hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, uint32_t base_addr, int len) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
 	uint32_t read_data;
 	int err;
 	for (size_t i = 0; i < len; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = base_addr*4 + (i*4) };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = (re_mem_epa + base_addr + i)*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa,
 					      &read_data, sizeof(read_data));
 		if (err != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to read A[%d] "
 				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, RE_DRAM_X, RE_DRAM_Y, base_addr + i);
+				   i, re_mem_x, re_mem_y, base_addr + i);
 		}
 		printf("Read result(%d) %x \n", i, read_data);
 	}
@@ -479,8 +490,10 @@ void wgt_transpose_and_write (hb_mc_manycore_t *mc, FC_layer fc, float *w, float
 	fc_fp_wrt_wgt(mc, fc, wT, zero_bias, fc.wT_base_addr);
 }
 
-void read_dw (hb_mc_manycore_t *mc, float *dW, uint32_t base_addr, int row, int col){
-	uint32_t addr=base_addr;
+void read_dw (hb_mc_manycore_t *mc, float *dW, FC_layer fc){
+    int row = fc.input_size;
+    int col = fc.output_size;
+	uint32_t addr = fc.dw_base_addr+1;
 	int index;
 	int read_data;
 	for (int i = 0; i < col; i++) {
@@ -491,13 +504,35 @@ void read_dw (hb_mc_manycore_t *mc, float *dW, uint32_t base_addr, int row, int 
 			index = i*row+j;
 			dW[index] = flt(read_data);
 			addr++;
-			/* bsg_pr_test_info("Read dW(%d) %.5f, host result %.5f \n", index, dW[index], dW_host[index]); */
+            // bsg_pr_test_info("Read dW(%d) (%x)%.16f \n", addr, read_data, dW[index]);
 			/* bsg_pr_test_info("dY_host %.5f, X_host %.5f \n", dY_host[i], X_host[j]); */
 		}
 		if (row<18) 
 			addr += (18-row);
 	}
 }
+
+void read_db (hb_mc_manycore_t *mc, float *db, FC_layer fc) {
+	uint32_t dy_addr = fc.dy_base_addr;
+	uint32_t y_addr = fc.rst_base_addr + 1;
+    int size = fc.output_size;
+	int read_data;
+	for (int i = 0; i < size; i++) {
+        hb_mc_npa_t npa = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = DRLP_RMEM_PREFIX + (y_addr+i)*4 };
+		hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
+        // bsg_pr_test_info("Read y(%d) %x \n", i, read_data);
+        if (read_data != 0) {
+            hb_mc_npa_t npa2 = { .x = drlp_coord_x, .y = drlp_coord_y, .epa = DRLP_RMEM_PREFIX + (dy_addr+i)*4 };
+		    hb_mc_manycore_read_mem(mc, &npa2, &read_data, sizeof(read_data));
+            db[i] = flt(read_data);
+        }
+        else {
+            db[i] = 0.0;
+        }
+        // bsg_pr_test_info("Read db(%d) %.5f \n", i, db[i]);
+    }
+}
+
 
 void drlp_fc_fp(hb_mc_manycore_t *mc, FC_layer fc) {
 	fc_fp_drlp_map(&fc);
@@ -527,7 +562,7 @@ void drlp_fc_fp(hb_mc_manycore_t *mc, FC_layer fc) {
 	wgt_from_dram=1;
 	uint32_t config6 = (layer<<28) + (wgt_from_dram<<26) + (img_from_dram<<25) + (rst_to_dram<<24) + 1;
 
-	// bsg_pr_test_info("========DRLP FC FP========\n");
+    // bsg_pr_test_info("========DRLP FC FP========\n");
 	uint32_t config[DRLP_CFG_LEN] = {config0, fc.act_base_addr, fc.wgt_base_addr, fc.rst_base_addr, 0, config5, config6};
 	write_configure(mc, config);
 	// Wait for stop
@@ -627,7 +662,7 @@ void drlp_fc_dx(hb_mc_manycore_t *mc, FC_layer fc) {
 } 
 
 void nn_fp(hb_mc_manycore_t *mc, float *state, FC_layer *nn, int num_layer, float* results) {
-	// bsg_pr_test_info("========Write state to DRAM on device========\n");
+    // bsg_pr_test_info("========Write state to DRAM on device========\n");
 	int end=18;
 	if (STATE_SIZE>18)
 		end = STATE_SIZE;
@@ -642,12 +677,12 @@ void nn_fp(hb_mc_manycore_t *mc, float *state, FC_layer *nn, int num_layer, floa
 		write_dram_float(mc, addr, number);
 	}
 
-	// bsg_pr_test_info("========Call DRLP NN FP========\n");
+    bsg_pr_test_info("========Call DRLP NN FP========\n");
 	for (int i = 0; i < num_layer; i++) { 
 		drlp_fc_fp(mc, nn[i]);
 	}
 
-	// bsg_pr_test_info("========Read FP results========\n");
+    // bsg_pr_test_info("========Read FP results========\n");
 	read_dram(mc, FC2_Y_ADDR+1, ACTION_SIZE, results, false);
 }
 
@@ -667,7 +702,7 @@ void nn_bp(hb_mc_manycore_t *mc, float *dy, FC_layer *nn, int num_layer) {
 		write_dram_float(mc, addr, number);
 	}
 
-	// bsg_pr_test_info("========Call DRLP NN BP========\n");
+    bsg_pr_test_info("========Call DRLP NN BP========\n");
 	for (int i = num_layer-1; i > 0; i--) { 
 		drlp_fc_dw(mc, nn[i]);
 		// delay
@@ -700,9 +735,11 @@ void dqn_act(hb_mc_manycore_t *mc, Transition *trans, FC_layer *nn, int num_laye
 	}
 }
 
-void dqn_train(hb_mc_manycore_t *mc, Transition *trans, FC_layer *nn, int num_layer, float gamma) {
+void dqn_train(hb_mc_manycore_t *mc, Transition *trans, FC_layer *nn, int num_layer, float* fc2_dy, float gamma) {
 	// FP
 	// next state
+    for (int i = 0; i < STATE_SIZE; i++)
+        bsg_pr_test_info("DRLP Train: next_state[%d]=%f\n", i, trans->next_state[i]);
 	float next_values[ACTION_SIZE];
 	int next_max_index = 0;
 	nn_fp(mc, trans->next_state, nn, num_layer, next_values);
@@ -710,22 +747,25 @@ void dqn_train(hb_mc_manycore_t *mc, Transition *trans, FC_layer *nn, int num_la
 	for (int i = 0; i < ACTION_SIZE; i++) { 
 		if (next_values[i] > next_values[next_max_index])
 			next_max_index = i;
-		// bsg_pr_test_info("DRLP Train: next_value[%d]=%f\n", i, next_values[i]);
+        bsg_pr_test_info("DRLP Train: next_value[%d]=%f\n", i, next_values[i]);
 	}
 	// state
+    for (int i = 0; i < STATE_SIZE; i++)
+        bsg_pr_test_info("DRLP Train: state[%d]=%f\n", i, trans->state[i]);
 	float state_values[ACTION_SIZE];
 	nn_fp(mc, trans->state, nn, num_layer, state_values);
-	// for (int i = 0; i < ACTION_SIZE; i++) { 
-	// 	bsg_pr_test_info("DRLP Train: state_value[%d]=%f\n", i, state_values[i]);
-	// }
+    for (int i = 0; i < ACTION_SIZE; i++) { 
+        bsg_pr_test_info("DRLP Train: state_value[%d]=%f\n", i, state_values[i]);
+    }
 
 	// Loss function
-	float target = trans->reward + gamma*next_values[next_max_index];
-	float fc2_dy[ACTION_SIZE]={0.0};
-	fc2_dy[next_max_index] = next_values[next_max_index] - state_values[next_max_index]; // MSE loss function
-	// for (int i = 0; i < ACTION_SIZE; i++) { 
-	// 	bsg_pr_test_info("DRLP Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
-	// }
+	float target = (trans->reward) + gamma*next_values[next_max_index];
+	// float fc2_dy[ACTION_SIZE]={0.0};
+	fc2_dy[next_max_index] = target - state_values[next_max_index]; // MSE loss function
+    bsg_pr_test_info("DRLP Train: reward=%f\n", trans->reward);
+    for (int i = 0; i < ACTION_SIZE; i++) { 
+        bsg_pr_test_info("DRLP Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
+    }
 
 	// BP
 	nn_bp(mc, fc2_dy, nn, num_layer);

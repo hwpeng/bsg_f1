@@ -69,7 +69,7 @@
 #define DRLP_CFG_LEN  7
 #define DRLP_CFG_ADDR {0xFC0000, 0xFC0004, 0xFC0008, 0xFC000C, 0xFC0010, 0xFC0014, 0xFC0018, 0xFC001C}
 #define DRLP_DONE_ADDR 0xFC0020
-#define DRLP_RMEM_PREFIX 0xFC8000
+#define DRLP_RMEM_PREFIX 0xFE0000
 
 #define CONV1_ACT_ADDR 0
 #define CONV1_WGT_ADDR (29*1024)
@@ -230,7 +230,7 @@ void read_dram (hb_mc_manycore_t *mc, uint32_t base_addr, int len, float *read_f
 		}
 		read_float[i] = flt(read_data);
 		if (print)
-			bsg_pr_test_info("Read result(%d) %1.4f(%x) \n", i, read_float[i], read_data);
+			bsg_pr_test_info("Read result(%d) %1.6f(%x) \n", base_addr+i, read_float[i], read_data);
 	}
 }
 
