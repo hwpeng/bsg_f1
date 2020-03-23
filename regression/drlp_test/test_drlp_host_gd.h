@@ -15,7 +15,7 @@ int host_compare (float *expect, float *get, int size) {
         mismatch = 1;
 		}
 	}
-    bsg_pr_test_info ("BackProp MAX relative floating-point error: %e\n", max_ferror); 
+    bsg_pr_test_info ("MAX relative floating-point error: %e\n", max_ferror); 
 	return mismatch;
 }
 

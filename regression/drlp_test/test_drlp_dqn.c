@@ -327,29 +327,27 @@ int test_drlp_dqn (int argc, char **argv) {
 			}
 
 			// Optimizer
-			// cuda_optimizer(device, bin_path, w2_opt_eva, dw2_opt_eva, w2_new_opt_eva, FC2_W, FC2_dW, FC2_W_SIZE, LR);
-			// cuda_optimizer(device, bin_path, w1_opt_eva, dw1_opt_eva, w1_new_opt_eva, FC1_W, FC1_dW, FC1_W_SIZE, LR);
-			// cuda_optimizer(device, bin_path, b2_opt_eva, db2_opt_eva, b2_new_opt_eva, FC2_B, FC2_dB, FC2_Y_SIZE, LR);
-			// cuda_optimizer(device, bin_path, b1_opt_eva, db1_opt_eva, b1_new_opt_eva, FC1_B, FC1_dB, FC1_Y_SIZE, LR);
-			// /* for (int i = 0; i < FC1_Y_SIZE; i++)  */
-            //     /* bsg_pr_test_info("F1_B[%d]=%f\n", i, FC1_B[i]); */
+			cuda_optimizer(device, bin_path, w2_opt_eva, dw2_opt_eva, w2_new_opt_eva, FC2_W, FC2_dW, FC2_W_SIZE, LR);
+			cuda_optimizer(device, bin_path, w1_opt_eva, dw1_opt_eva, w1_new_opt_eva, FC1_W, FC1_dW, FC1_W_SIZE, LR);
+			cuda_optimizer(device, bin_path, b2_opt_eva, db2_opt_eva, b2_new_opt_eva, FC2_B, FC2_dB, FC2_Y_SIZE, LR);
+			cuda_optimizer(device, bin_path, b1_opt_eva, db1_opt_eva, b1_new_opt_eva, FC1_B, FC1_dB, FC1_Y_SIZE, LR);
+			/* for (int i = 0; i < FC1_Y_SIZE; i++)  */
+                /* bsg_pr_test_info("F1_B[%d]=%f\n", i, FC1_B[i]); */
 
-			// if (HOST_COMPARE) {
-			// 	rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
-			// 	rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
-			// 	if (rc==1)
-			// 		bsg_pr_err("Step%d, optimizer has error!\n", step);
-			// }
-			// // Write new weight to DRAM
-			// base_addr = FC1_W_ADDR;
-			// fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
-			// base_addr = FC2_W_ADDR;
-			// fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
+			if (HOST_COMPARE) {
+				rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
+				rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
+				if (rc==1)
+					bsg_pr_err("Step%d, optimizer has error!\n", step);
+			}
+			// Write new weight to DRAM
+			base_addr = FC1_W_ADDR;
+			fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
+			base_addr = FC2_W_ADDR;
+			fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
 
 		}
 	}
-    float read_float[2000];
-    read_dram(mc, 46199, 2000, read_float, true);	
 
     /* Freeze the tiles and memory manager cleanup. */
 	Py_DECREF(pinst);	

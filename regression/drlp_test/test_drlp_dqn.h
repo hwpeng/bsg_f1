@@ -37,7 +37,7 @@
 #define RE_MEM_SIZE 5000
 #define RE_MEM_INIT_SIZE 1
 #define TRANSITION_SIZE 2*STATE_SIZE+3
-#define STEP_MAX 2
+#define STEP_MAX 3
 #define TRAIN_FREQ 1
 
 // Manycore
