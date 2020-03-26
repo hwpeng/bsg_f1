@@ -31,17 +31,17 @@
 
 int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t dw_device, eva_t w_new_device, float *w, float *dw, int w_num, float lr) {
 	int rc;
-    rc = hb_mc_device_program_init(&device, bin_path, ALLOC_NAME, 0);
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to initialize program.\n");
-            return rc;
-    }
-    else {
-        bsg_pr_test_info("Initialize program %s. \n", bin_path);
-    }
+    /* rc = hb_mc_device_program_init(&device, bin_path, ALLOC_NAME, 0); */
+    /* if (rc != HB_MC_SUCCESS) {  */
+            /* bsg_pr_err("failed to initialize program.\n"); */
+            /* return rc; */
+    /* } */
+    /* else { */
+        /* bsg_pr_test_info("Initialize program %s. \n", bin_path); */
+    /* } */
 
     /* Copy W & dW from host onto device DRAM (eva) */
-	bsg_pr_test_info("========Copy from host to device DRAM (eva)========\n");
+	/* bsg_pr_test_info("========Copy from host to device DRAM (eva)========\n"); */
     void *dst = (void *) ((intptr_t) w_device);
     void *src = (void *) &w[0];
     rc = hb_mc_device_memcpy (&device, dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_DEVICE); 
@@ -49,6 +49,28 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
             bsg_pr_err("failed to copy memory to device.\n");
             return rc;
     }
+    /* bsg_pr_test_info("w[0]=%.16f \n", w[0]); */
+
+	hb_mc_manycore_t *mc = device.mc;
+    hb_mc_coordinate_t tt = { .x = 1, .y = 1 };
+    size_t w1_size = sizeof(uint32_t)*FC1_W_SIZE;
+    hb_mc_npa_t w1_npa, w1_new_npa;
+    hb_mc_idx_t w1_x, w1_y, w1_new_x, w1_new_y;
+    hb_mc_epa_t w1_epa, w1_new_epa;
+
+    hb_mc_eva_to_npa(mc, &default_map, &tt, &w_device, &w1_npa, &w1_size);
+    w1_x = hb_mc_npa_get_x(&w1_npa);
+    w1_y = hb_mc_npa_get_y(&w1_npa);
+    w1_epa = hb_mc_npa_get_epa(&w1_npa);
+    /* bsg_pr_test_info("w1 opt: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, %d)\n", hb_mc_eva_addr(&w_device), w1_x, w1_y, w1_epa); */
+
+    hb_mc_npa_t npa = { .x = w1_x, .y = w1_y, .epa = w1_epa };
+	uint32_t read_data;
+    float read_float;
+    hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
+    read_float = flt(read_data);
+    /* bsg_pr_test_info("Read result %1.4f(%x) \n", read_float, read_data); */
+
     dst = (void *) ((intptr_t) dw_device);
     src = (void *) &dw[0];
     rc = hb_mc_device_memcpy (&device, dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_DEVICE); 
@@ -56,6 +78,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
             bsg_pr_err("failed to copy memory to device.\n");
             return rc;
     }
+    /* bsg_pr_test_info("dw[0]=%.16f \n", dw[0]); */
 
 	/* Initialize values in w_new_device to 0. */
     rc = hb_mc_device_memset(&device, &w_new_device, 0, w_num * sizeof(uint32_t));
@@ -63,6 +86,9 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
             bsg_pr_err("failed to set memory on device.\n");
             return rc;
     } 
+    hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
+    read_float = flt(read_data);
+    /* bsg_pr_test_info("Read result %1.4f(%x) \n", read_float, read_data); */
 
     /* Define block_size_x/y: amount of work for each tile group */
     /* Define tg_dim_x/y: number of tiles in each tile group */
@@ -75,7 +101,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
     int cuda_argv[6] = {w_device, dw_device, w_new_device, lr, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
-	bsg_pr_test_info("========Enqueue cuda kernel========\n");
+	/* bsg_pr_test_info("========Enqueue cuda kernel========\n"); */
     rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 6, cuda_argv);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize grid.\n");
@@ -83,7 +109,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
     }
 
     /* Launch and execute all tile groups on device and wait for all to finish.  */
-	bsg_pr_test_info("========Excute cuda kernel========\n");
+	/* bsg_pr_test_info("========Excute cuda kernel========\n"); */
     rc = hb_mc_device_tile_groups_execute(&device);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to execute tile groups.\n");
@@ -91,7 +117,7 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
     }
 
     /* Copy result matrix back from device DRAM into host memory. */
-	bsg_pr_test_info("========Copy from device DRAM to host========\n");
+	/* bsg_pr_test_info("========Copy from device DRAM to host========\n"); */
     src = (void *) ((intptr_t) w_new_device);
     dst = (void *) &w[0];
     rc = hb_mc_device_memcpy (&device, (void *) dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_HOST);
@@ -175,7 +201,6 @@ int test_drlp_dqn (int argc, char **argv) {
 	}
 
     /* Allocate memory on the device for W, dW, and W_NEW */
-	bsg_pr_test_info("========Allocate memory on device========\n");
     eva_t w1_opt_eva, dw1_opt_eva, w1_new_opt_eva; 
     eva_t b1_opt_eva, db1_opt_eva, b1_new_opt_eva; 
     eva_t w2_opt_eva, dw2_opt_eva, w2_new_opt_eva; 
@@ -193,8 +218,24 @@ int test_drlp_dqn (int argc, char **argv) {
     hb_mc_device_malloc(&device, FC2_Y_SIZE * sizeof(uint32_t), &db2_opt_eva); 
     hb_mc_device_malloc(&device, FC2_Y_SIZE * sizeof(uint32_t), &b2_new_opt_eva); 
 
-    /* Allocate memory on the device for replay memory*/
     hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    /* Allocate memory on the device for DRLP operation*/
+    size_t drlp_dram_size = sizeof(uint32_t)*DRLP_DRAM_SIZE;
+    eva_t drlp_dram_eva;
+    hb_mc_npa_t drlp_dram_npa;
+    hb_mc_idx_t drlp_dram_x, drlp_dram_y;
+    hb_mc_epa_t drlp_dram_epa;
+
+    hb_mc_device_malloc(&device, drlp_dram_size, &drlp_dram_eva); 
+    hb_mc_eva_to_npa(mc, &default_map, &target, &drlp_dram_eva, &drlp_dram_npa, &drlp_dram_size);
+    drlp_dram_x = hb_mc_npa_get_x(&drlp_dram_npa);
+    drlp_dram_y = hb_mc_npa_get_y(&drlp_dram_npa);
+    drlp_dram_epa = hb_mc_npa_get_epa(&drlp_dram_npa);
+    
+    bsg_pr_test_info("DRLP DRAM memory: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, 0x%x)\n", hb_mc_eva_addr(&drlp_dram_eva), drlp_dram_x, drlp_dram_y, drlp_dram_epa);
+    write_dram_configure(mc, drlp_dram_npa);
+
+    /* Allocate memory on the device for replay memory*/
     size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
     eva_t re_mem_eva;
     hb_mc_npa_t re_mem_npa;
@@ -209,27 +250,24 @@ int test_drlp_dqn (int argc, char **argv) {
     
     bsg_pr_test_info("Replay memory: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, 0x%x)\n", hb_mc_eva_addr(&re_mem_eva), re_mem_x, re_mem_y, re_mem_epa);
 
-
     /*****************************************************************************************************************
     * Weight random initialization and write to dram
     ******************************************************************************************************************/
 	// On the host
 	float FC1_W[FC1_W_SIZE];
-	float FC1_B[FC1_Y_SIZE];
+	float FC1_B[FC1_Y_SIZE] = {0.0};
 	float FC2_W[FC2_W_SIZE];
-	float FC2_B[FC2_Y_SIZE];
+	float FC2_B[FC2_Y_SIZE] = {0.0};
+	float FC2_WT[FC2_W_SIZE];
 	srand(0.1); 
 	param_random(FC1_W, FC1_W_SIZE);
-	param_random(FC1_B, FC1_Y_SIZE);
 	param_random(FC2_W, FC2_W_SIZE);
-	param_random(FC2_B, FC2_Y_SIZE);
 	// To the device DRAM
 	uint32_t base_addr = FC1_W_ADDR;
-	fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
+	fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_npa, base_addr);
 	base_addr = FC2_W_ADDR;
-	fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
+	fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_npa, base_addr);
 
-	float FC2_WT[FC2_W_SIZE];
     /*****************************************************************************************************************
     * DQN  
     ******************************************************************************************************************/
@@ -268,7 +306,6 @@ int test_drlp_dqn (int argc, char **argv) {
 	// }
 
 	// Training loop 
-	float epsilon=0.0;
 	int num_trans;
 	bool re_mem_full = false;
 	bool compare_host = true;
@@ -277,88 +314,136 @@ int test_drlp_dqn (int argc, char **argv) {
 	float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_Y_SIZE] = {0.0};
 	float host_fc2_w_new[FC2_W_SIZE];
 	float host_fc1_w_new[FC1_W_SIZE];
-	for (int step = 0; step < STEP_MAX; step++) {
-		bsg_pr_test_info("Step%d\n", step);
+	float host_fc2_b_new[FC2_Y_SIZE];
+	float host_fc1_b_new[FC1_Y_SIZE];
 
-		// Perform one step
-		bsg_pr_test_info("Perform one step\n");
-		dqn_act(mc, &trans, nn, num_layer, epsilon);
-		call_step(&trans, pinst);
+    float epsilon = MAX_EPSILON;
+    int total_step = 0;
+    int step = 0;
+    float step_mean = 0.0;
+    bool episode_done = false;
+	for (int episode = 1; episode < EPISODE_MAX; episode++) {
+		/* bsg_pr_test_info("========================================================\n"); */
+		/* bsg_pr_test_info("EPISODE%d, epsilon: %f==================================\n", episode, epsilon); */
+		/* bsg_pr_test_info("========================================================\n"); */
+        episode_done = false;
+        step = 0;
+	    while (!episode_done) {
+            total_step++;
+            step++;
+			/* bsg_pr_test_info("Step%d-------------------------------------\n", step); */
 
-		// Push to replay memory 
-		bsg_pr_test_info("Push to replay memory\n");
-		position = re_mem_push(mc, re_mem_npa, &trans, position);
-		if (position == 0)
-			re_mem_full = true;
-		if (re_mem_full)
-			num_trans = RE_MEM_SIZE;
-		else
-			num_trans = position;
+	    	// Perform one step
+			/* bsg_pr_test_info("Perform one step\n"); */
+	    	dqn_act(mc, drlp_dram_npa, &trans, nn, num_layer, epsilon);
+	    	call_step(&trans, pinst);
 
-		if (trans.done==0) {
-			for (int j=0; j<STATE_SIZE; j++)
-				trans.state[j] = trans.next_state[j];
-		}
-		else {
-			call_reset(&trans, pinst);
-		}
+	    	// Push to replay memory 
+			/* bsg_pr_test_info("Push to replay memory\n"); */
+	    	position = re_mem_push(mc, re_mem_npa, &trans, position);
+	    	if (position == 0)
+	    		re_mem_full = true;
+	    	if (re_mem_full)
+	    		num_trans = RE_MEM_SIZE;
+	    	else
+	    		num_trans = position;
 
-		// Training 
-		if (step%TRAIN_FREQ==0) {
-			// Weight transpose and write
-			bsg_pr_test_info("Weight transpose and write\n");
-			wgt_transpose_and_write(mc, FC2, FC2_W, FC2_WT);
+	    	if (trans.done==0.0) {
+	    		for (int j=0; j<STATE_SIZE; j++)
+	    			trans.state[j] = trans.next_state[j];
+	    	}
+	    	else {
+	    		call_reset(&trans, pinst);
+                episode_done = true;
+                step_mean += step;
+                if (episode%20==0) {
+		            bsg_pr_test_info("Episode: %d, epsilon: %f, mean score: %f\n", episode, epsilon, step_mean/20.0);
+                    step_mean = 0.0;
+                    float qv[2];
+	                nn_fp(mc, drlp_dram_npa, trans.state, nn, num_layer, qv);
+		            bsg_pr_test_info("Q[0]: %f\tQ[1]: %f \n", qv[0], qv[1]);
+                }
+	    	}
 
-			// Sample from replay memory
-			bsg_pr_test_info("Sample from replay memory\n");
-			re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
+	    	// Training 
+	    	if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
+	    		// Weight transpose and write
+				/* bsg_pr_test_info("Weight transpose and write\n"); */
+	    		wgt_transpose_and_write(mc, drlp_dram_npa,  FC2, FC2_W, FC2_WT);
 
-			// Train
-			dqn_train(mc, &sample_trans, nn, num_layer, FC2_dB, 0.95);
-			read_dw(mc, FC2_dW, FC2);
-			read_dw(mc, FC1_dW, FC1);
-			read_db(mc, FC1_dB, FC1);
-			if (HOST_COMPARE) {
-				rc = host_train(sample_trans.state, sample_trans.next_state, sample_trans.reward, sample_trans.done, FC1_W, FC1_B, FC2_W, FC2_B, FC2_WT, FC2_dW, FC1_dW, STATE_SIZE, FC1_Y_SIZE, ACTION_SIZE); 
-				/* if (rc==1) */
-					/* bsg_pr_err("Step%d, BP has error!\n", step); */
-				host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
-				host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
-			}
+	    		// Sample from replay memory
+				/* bsg_pr_test_info("Sample from replay memory\n"); */
+	    		re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
 
-			// Optimizer
-			cuda_optimizer(device, bin_path, w2_opt_eva, dw2_opt_eva, w2_new_opt_eva, FC2_W, FC2_dW, FC2_W_SIZE, LR);
-			cuda_optimizer(device, bin_path, w1_opt_eva, dw1_opt_eva, w1_new_opt_eva, FC1_W, FC1_dW, FC1_W_SIZE, LR);
-			cuda_optimizer(device, bin_path, b2_opt_eva, db2_opt_eva, b2_new_opt_eva, FC2_B, FC2_dB, FC2_Y_SIZE, LR);
-			cuda_optimizer(device, bin_path, b1_opt_eva, db1_opt_eva, b1_new_opt_eva, FC1_B, FC1_dB, FC1_Y_SIZE, LR);
-			/* for (int i = 0; i < FC1_Y_SIZE; i++)  */
-                /* bsg_pr_test_info("F1_B[%d]=%f\n", i, FC1_B[i]); */
+	    		// Train
+				/* bsg_pr_test_info("Perform training\n"); */
+	    		dqn_train(mc, drlp_dram_npa, &sample_trans, nn, num_layer, FC2_dB, 0.95);
+	    		read_dw(mc, drlp_dram_npa, FC2_dW, FC2);
+	    		read_dw(mc, drlp_dram_npa, FC1_dW, FC1);
+	    		read_db(mc, FC1_dB, FC1);
+	    		if (HOST_COMPARE) {
+	    			rc = host_train(sample_trans.state, sample_trans.next_state, sample_trans.reward, sample_trans.done, sample_trans.action, FC1_W, FC1_B, FC2_W, FC2_B, FC2_WT, FC2_dW, FC1_dW, STATE_SIZE, FC1_Y_SIZE, ACTION_SIZE); 
+	    			if (rc==1)
+	    				bsg_pr_err("Step%d, BP has error!\n", total_step);
+                    host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
+                    host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
+                    host_optimizer(host_fc2_b_new, FC2_B, FC2_dB, LR, FC2_Y_SIZE);
+                    host_optimizer(host_fc1_b_new, FC1_B, FC1_dB, LR, FC1_Y_SIZE);
+                    /* host_optimizer(FC2_W, FC2_W, FC2_dW, LR, FC2_W_SIZE); */
+					/* host_optimizer(FC1_W, FC1_W, FC1_dW, LR, FC1_W_SIZE); */
+                    /* host_optimizer(FC2_B, FC2_B, FC2_dB, LR, FC2_Y_SIZE); */
+					/* host_optimizer(FC1_B, FC1_B, FC1_dB, LR, FC1_Y_SIZE); */
+	    		}
 
-			if (HOST_COMPARE) {
-				rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
-				rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
-				if (rc==1)
-					bsg_pr_err("Step%d, optimizer has error!\n", step);
-			}
-			// Write new weight to DRAM
-			base_addr = FC1_W_ADDR;
-			fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, base_addr);
-			base_addr = FC2_W_ADDR;
-			fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, base_addr);
+                /* for (int i = 0; i < 6; i++)  */
+                    /* bsg_pr_test_info("FC1_W[%d]=%.16f, FC1_dW[%d]=%.16f\n", i, FC1_W[i], i, FC1_dW[i]); */
 
-		}
+	    		// Optimizer
+                cuda_optimizer(device, bin_path, w2_opt_eva, dw2_opt_eva, w2_new_opt_eva, FC2_W, FC2_dW, FC2_W_SIZE, LR);
+                cuda_optimizer(device, bin_path, w1_opt_eva, dw1_opt_eva, w1_new_opt_eva, FC1_W, FC1_dW, FC1_W_SIZE, LR);
+                cuda_optimizer(device, bin_path, b2_opt_eva, db2_opt_eva, b2_new_opt_eva, FC2_B, FC2_dB, FC2_Y_SIZE, LR);
+                cuda_optimizer(device, bin_path, b1_opt_eva, db1_opt_eva, b1_new_opt_eva, FC1_B, FC1_dB, FC1_Y_SIZE, LR);
+
+	    		if (HOST_COMPARE) {
+                    rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
+                    if (rc==1)
+                        bsg_pr_err("Step%d, fc2_w optimizer has error!\n", step);
+                    rc = host_compare(host_fc2_b_new, FC2_B, FC2_Y_SIZE);
+                    if (rc==1)
+                        bsg_pr_err("Step%d, fc2_b optimizer has error!\n", step);
+                    rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
+                    if (rc==1)
+                        bsg_pr_err("Step%d, fc1_w optimizer has error!\n", step);
+                    rc = host_compare(host_fc1_b_new, FC1_B, FC1_Y_SIZE);
+                    if (rc==1)
+                        bsg_pr_err("Step%d, fc1_b optimizer has error!\n", step);
+	    		}
+                printf("No error.\n");
+	    		// Write new weight to DRAM
+	    		base_addr = FC1_W_ADDR;
+                fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_npa, base_addr);
+	    		base_addr = FC2_W_ADDR;
+                fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_npa, base_addr);
+
+                if (epsilon*EPSILON_DECAY > MIN_EPSILON)
+                    epsilon *= EPSILON_DECAY;
+                else
+                    epsilon = MIN_EPSILON;
+
+	            return HB_MC_SUCCESS;
+	    	}
+        }
 	}
-
+	
     /* Freeze the tiles and memory manager cleanup. */
 	Py_DECREF(pinst);	
     Py_Finalize(); 
-	printf("=========================\n");
+	/* printf("=========================\n"); */
     rc = hb_mc_device_finish(&device); 
     if (rc != HB_MC_SUCCESS) { 
 		bsg_pr_err("failed to de-initialize device.\n");
     	return rc;
     }
-
 
 	return HB_MC_SUCCESS;
 }

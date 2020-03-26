@@ -9,13 +9,13 @@ int host_compare (float *expect, float *get, int size) {
 		ferror = hb_mc_calculate_float_error (expect[i], get[i]); 
         max_ferror = fmax (max_ferror, ferror);        
         // if (ferror > MAX_FLOAT_ERROR_TOLERANCE) {
-        if (ferror > 0.00001) {
+        if (ferror > 0.005) {
 			bsg_pr_err(BSG_RED("Mismatch: ") "[%d]: %.32f\tExpected: %.32f\tRelative error: %.32f\n",
             i, get[i], expect[i], ferror);
         mismatch = 1;
 		}
 	}
-    bsg_pr_test_info ("MAX relative floating-point error: %e\n", max_ferror); 
+    // bsg_pr_test_info ("BackProp MAX relative floating-point error: %e\n", max_ferror); 
 	return mismatch;
 }
 
@@ -44,6 +44,11 @@ void host_fc_dx (float *dy, float *wT, float *x, float *dx, int relu, int x_num,
 		dx[i] = 0;
 		for(int j = 0; j < x_num; j++) {
 			dx[i] += dy[j]*wT[j*y_num+i];
+			float t0, t1, t3;
+			t0 = dx[i];
+			t1 = dy[j];
+			t3 = wT[j*y_num+i];  
+            // printf("Host: dx[%d](%x) += dy[%d](%x)*wT[%d](%x) \n", i, hex(t0), j, hex(t1), j*y_num+i, hex(t3));
 		}
 		if ((relu==1) && (x[i]==0.0)) { 
 			dx[i]=0.0;
@@ -90,12 +95,13 @@ void host_bp (float *fc2_dy, float *fc1_y, float *fc2_wT, float *state, float *f
 void host_optimizer (float *w_new, float *w, float *gd, float gamma, int N) { 
         for (int i = 0; i < N; i ++) { 
         	w_new[i] = w[i] - gamma*gd[i];
-			// printf("w_new[%d]: %.16f\tw: %.16f\tgamma:%.5f\tdw: %.16f\n", 
-				// i, w_new[i], w[i], gamma, gd[i]);
+            // if (i==28)
+                // printf("w_new[%d]: %.16f\tw: %.16f\tgamma:%.5f\tdw: %.16f\n", 
+                    // i, w_new[i], w[i], gamma, gd[i]);
         }
 }
 
-int host_train (float *state, float *next_state, float reward, int done, float *fc1_w, float *fc1_b, float *fc2_w, float *fc2_b, float *fc2_wT, float *fc2_dw, float *fc1_dw, int state_size, int fc1_y_size, int action_size) {
+int host_train (float *state, float *next_state, float reward, float done, uint32_t action, float *fc1_w, float *fc1_b, float *fc2_w, float *fc2_b, float *fc2_wT, float *fc2_dw, float *fc1_dw, int state_size, int fc1_y_size, int action_size) {
 	float gamma=0.95;
 
 	// FP
@@ -109,21 +115,25 @@ int host_train (float *state, float *next_state, float reward, int done, float *
 	for (int i = 0; i < action_size; i++) { 
 		if (next_values[i] > next_values[next_max_index])
 			next_max_index = i;
-        bsg_pr_test_info("Host Train: next_value[%d]=%f\n", i, next_values[i]);
+        // bsg_pr_test_info("Host Train: next_value[%d]=%f\n", i, next_values[i]);
 	}
 	// state
 	host_fp(state, fc1_w, fc1_b, fc2_w, fc2_b, fc1_y, state_values, state_size, fc1_y_size, action_size);
     for (int i = 0; i < action_size; i++) { 
-        bsg_pr_test_info("Host Train: state_value[%d]=%f\n", i, state_values[i]);
+        // bsg_pr_test_info("Host Train: state_value[%d]=%f\n", i, state_values[i]);
     }
 
 	// Loss function
-	float target = reward + gamma*next_values[next_max_index];
+	float target;
+    if (done == 0.0)
+        target = reward + gamma*next_values[next_max_index];
+    else
+        target = reward;
 	float fc2_dy[2]={0.0};
-	fc2_dy[next_max_index] = target - state_values[next_max_index]; // MSE loss function
-    bsg_pr_test_info("HOST Train: reward=%f\n", reward);
+	fc2_dy[action] = state_values[action] - target; // MSE loss function
+    // bsg_pr_test_info("HOST Train: reward=%f\n", reward);
     for (int i = 0; i < action_size; i++) { 
-        bsg_pr_test_info("Host Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
+        // bsg_pr_test_info("Host Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
     }
 
 	// BP
@@ -134,32 +144,9 @@ int host_train (float *state, float *next_state, float reward, int done, float *
 	// compare
 	int mismatch=0;
 	mismatch = host_compare (host_fc2_dw, fc2_dw, (fc1_y_size*action_size));
-    if (mismatch==1)
-        bsg_pr_err("fc2_dw has error!\n");
 	mismatch = host_compare (host_fc1_dw, fc1_dw, (state_size*fc1_y_size));
-    if (mismatch==1)
-        bsg_pr_err("fc1_dw has error!\n");
 	return mismatch;
 }
 
-// float host_eval (float *w_real, float *w, int x_num, int y_num) {
-// 	float x_test[x_num], y_real[y_num], y_hat[y_num];
-// 	float err = 0.0;
-// 	int max_y_real, max_y_hat;
-// 	int N = 10;
-// 	for (int i = 0; i < N; i++) {
-// 		host_gen(x_test, w_real, y_real, x_num, y_num);
-// 		host_fp(x_test, w, y_hat, x_num, y_num);
-// 		for (int j = 0; j < y_num; j++) {
-// 			err += fabs(y_real[j]-y_hat[j])/fabs(y_real[j]);
-// 			/* printf("y_real[%d]: %.8f, y_hat[%d]: %.8f\n",  */
-// 					/* j, y_real[j], y_hat[j]); */
-// 		}
-// 		/* printf("iter%d: %d %d \n", i, max_y_real, max_y_hat); */
-// 	}
-// 	/* printf("wrong %d \n", wrong); */
-// 	return err/(float)(N*y_num);
-// }
-// 
 
 
