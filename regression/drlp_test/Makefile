@@ -39,11 +39,6 @@
 # BSG_MANYCORE_DIR: Path to a clone of BSG Manycore
 # CL_DIR: Path to the directory of this AWS F1 Project
 include ../../environment.mk
-# HARDWARE_PATH    = /home/centos/bsg_bladerunner/bsg_f1/hardware
-# REGRESSION_PATH  = /home/centos/bsg_bladerunner/bsg_f1/regression
-# TESTBENCH_PATH   = /home/centos/bsg_bladerunner/bsg_f1/testbenches
-# LIBRARIES_PATH   = /home/centos/bsg_bladerunner/bsg_f1/libraries
-# BSG_MACHINE_PATH = /home/centos/bsg_bladerunner/bsg_f1
 
 # tests.mk defines all of the regression tests (and the source path) for this
 # sub-directory. It defines the variable REGRESSION_TESTS_TYPE
