@@ -126,7 +126,6 @@ int test_drlp_dqn_all (int argc, char **argv) {
     * Test game and python settings
     ******************************************************************************************************************/
     char *game_name="Breakout-v0";
-    /* char *game_name="CartPole-v0"; */
     PyObject *pinst;
     pinst = py_init(game_name); // Initialize python class instance and method
 
@@ -254,9 +253,9 @@ int test_drlp_dqn_all (int argc, char **argv) {
 
     /* Allocate memory on the device for DRLP operation*/
     size_t drlp_dram_size = sizeof(uint32_t)*DRLP_DRAM_SIZE;
-    hb_mc_npa_t drlp_dram_npa;
-    malloc_npa(device, drlp_dram_size, &drlp_dram_npa);
-    write_dram_configure(mc, drlp_dram_npa);
+    hb_mc_eva_t drlp_dram_eva;
+    hb_mc_device_malloc(&device, drlp_dram_size, &drlp_dram_eva); 
+    write_dram_configure(mc, drlp_dram_eva);
 
     /* Allocate memory on the device for replay memory*/
     size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
@@ -279,7 +278,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
     float FC2_B[FC2_B_SIZE] = {0.0};
     float *nn_w[] = {CONV1_W, CONV2_W, CONV3_W, FC1_W, FC2_W};
     float *nn_b[] = {CONV1_B, CONV2_B, CONV3_B, FC1_B, FC2_B};
-    bsg_pr_test_info("Generate weights randomly\n");
+    bsg_pr_test_info("Initialize weights randomly and write to DRAM\n");
     srand(0.1); 
     param_random(CONV1_W, CONV1_W_SIZE);
     param_random(CONV2_W, CONV2_W_SIZE);
@@ -287,17 +286,16 @@ int test_drlp_dqn_all (int argc, char **argv) {
     param_random(FC1_W, FC1_W_SIZE);
     param_random(FC2_W, FC2_W_SIZE);
     // To the device DRAM
-    bsg_pr_test_info("Write weights to DRAM\n");
     uint32_t base_addr = CONV1_WGT_ADDR;
-    conv_fp_wrt_wgt(mc, drlp_dram_npa, CONV1, CONV1_W, CONV1_B, base_addr);
+    conv_fp_wrt_wgt(mc, drlp_dram_eva, CONV1, CONV1_W, CONV1_B, base_addr);
     base_addr = CONV2_WGT_ADDR;
-    conv_fp_wrt_wgt(mc, drlp_dram_npa, CONV2, CONV2_W, CONV2_B, base_addr);
+    conv_fp_wrt_wgt(mc, drlp_dram_eva, CONV2, CONV2_W, CONV2_B, base_addr);
     base_addr = CONV3_WGT_ADDR;
-    conv_fp_wrt_wgt(mc, drlp_dram_npa, CONV3, CONV3_W, CONV3_B, base_addr);
+    conv_fp_wrt_wgt(mc, drlp_dram_eva, CONV3, CONV3_W, CONV3_B, base_addr);
     base_addr = FC1_WGT_ADDR;
-    fc_fp_wrt_wgt(mc, drlp_dram_npa, FC1, FC1_W, FC1_B, base_addr);
+    fc_fp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W, FC1_B, base_addr);
     base_addr = FC2_WGT_ADDR;
-    fc_fp_wrt_wgt(mc, drlp_dram_npa, FC2, FC2_W, FC2_B, base_addr);
+    fc_fp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W, FC2_B, base_addr);
 
     bsg_pr_test_info("Write weights to DRAM done!!!\n");
 
@@ -357,7 +355,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
             bsg_pr_test_info("Step%d-------------------------------------\n", step);
             // Perform one step
             /* bsg_pr_test_info("Perform one step\n"); */
-            dqn_act(mc, drlp_dram_npa, &trans, nn, num_layer, epsilon);
+            dqn_act(mc, drlp_dram_eva, &trans, nn, num_layer, epsilon);
             /* bsg_pr_test_info("read conv3 output\n"); */
 			/* read_fc_db(mc, FC1_dB, CONV2); */
             /* bsg_pr_test_info("read fc1 output\n"); */
@@ -387,7 +385,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
 		            bsg_pr_test_info("Episode: %d, epsilon: %f, mean score: %f\n", episode, epsilon, step_mean/20.0);
                     step_mean = 0.0;
                     float qv[2];
-	                nn_fp(mc, drlp_dram_npa, trans.state, nn, num_layer, qv);
+	                nn_fp(mc, drlp_dram_eva, trans.state, nn, num_layer, qv);
 		            bsg_pr_test_info("Q[0]: %f\tQ[1]: %f \n", qv[0], qv[1]);
                 }
 	    	}
@@ -396,11 +394,11 @@ int test_drlp_dqn_all (int argc, char **argv) {
 	    	if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
                 // Weight transpose and write
                 bsg_pr_test_info("Weight transpose and write\n");
-                fc_bp_wrt_wgt(mc, drlp_dram_npa, FC2, FC2_W);
-                fc_bp_wrt_wgt(mc, drlp_dram_npa, FC1, FC1_W);
-                conv_bp_wrt_wgt(mc, drlp_dram_npa, CONV3, CONV3_W);
-                conv_bp_wrt_wgt(mc, drlp_dram_npa, CONV2, CONV2_W);
-                conv_bp_wrt_wgt(mc, drlp_dram_npa, CONV1, sample_trans.state);
+                fc_bp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W);
+                fc_bp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W);
+                conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV3, CONV3_W);
+                conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV2, CONV2_W);
+                conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV1, sample_trans.state);
 
                 // Sample from replay memory
                 bsg_pr_test_info("Sample from replay memory\n");
@@ -408,8 +406,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
 
                 // Train
                 bsg_pr_test_info("DQN train\n");
-                dqn_train(mc, drlp_dram_npa, &sample_trans, nn, num_layer, FC2_dB, 0.95);
-                read_fc_dw(mc, drlp_dram_npa, FC2_dW, FC2);
+                dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
+                read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
                 /* read_fc_dw(mc, drlp_dram_npa, FC1_dW, FC1); */
 				/* read_fc_db(mc, FC1_dB, FC1); */
                 return HB_MC_SUCCESS;
@@ -435,9 +433,9 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 }
                 // Write new weight to DRAM
                 base_addr = FC1_WGT_ADDR;
-                fc_fp_wrt_wgt(mc, drlp_dram_npa, FC1, FC1_W, FC1_B, base_addr);
+                fc_fp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W, FC1_B, base_addr);
                 base_addr = FC2_WGT_ADDR;
-                fc_fp_wrt_wgt(mc, drlp_dram_npa, FC2, FC2_W, FC2_B, base_addr);
+                fc_fp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W, FC2_B, base_addr);
 
                 if (epsilon*EPSILON_DECAY > MIN_EPSILON)
                     epsilon *= EPSILON_DECAY;

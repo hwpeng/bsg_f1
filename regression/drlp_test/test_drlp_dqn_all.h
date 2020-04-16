@@ -333,52 +333,25 @@ void read_re_mem (hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, uint32_t base_addr
 * DRLP configure
 ******************************************************************************************************************/
 
-int write_dram_configure(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa) {
-    uint32_t dram_config = drlp_dram_npa.x;
-	hb_mc_npa_t npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_X_ADDR };
-	hb_mc_manycore_write_mem(mc, &npa, &dram_config, sizeof(dram_config));
-
-    dram_config = drlp_dram_npa.y;
-	hb_mc_npa_t npa0 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_Y_ADDR };
-	hb_mc_manycore_write_mem(mc, &npa0, &dram_config, sizeof(dram_config));
-
-    dram_config = drlp_dram_npa.epa;
-	hb_mc_npa_t npa1 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_BASE_ADDR };
-	hb_mc_manycore_write_mem(mc, &npa1, &dram_config, sizeof(dram_config));
-}
-
-void write_drlp_dram_float(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, uint32_t addr, float number) {
-    hb_mc_idx_t drlp_dram_x = drlp_dram_npa.x;
-    hb_mc_idx_t drlp_dram_y = drlp_dram_npa.y;
-    hb_mc_epa_t drlp_dram_epa = drlp_dram_npa.epa;
+void eva_offset_write_fp (hb_mc_manycore_t *mc, hb_mc_eva_t base_eva, uint32_t byte_offset, float number) {
+    hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    eva_t curr_eva = base_eva + (byte_offset<<2);
 	uint32_t num_int = hex(number);
-	hb_mc_npa_t npa = {.x = drlp_dram_x, .y = drlp_dram_y, .epa = (drlp_dram_epa + addr)*4};
-	int rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
-	if (rc != HB_MC_SUCCESS) {
-		bsg_pr_err("%s: failed to write 0x%08" PRIx32 " "
-			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__,  num_int,
-			   drlp_dram_x, drlp_dram_y,
-			   addr);
-		hb_mc_manycore_exit(mc);
-	}
+    hb_mc_manycore_eva_write(mc, &default_map, &target, &curr_eva, &num_int, sizeof(uint32_t));
 }
 
-void read_drlp_dram (hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, uint32_t base_addr, int len, float *read_float, bool print) {
-	uint32_t read_data;
-	int err;
+void eva_offset_read_fp (hb_mc_manycore_t *mc, hb_mc_eva_t base_eva, uint32_t byte_offset, int len, float *read_float, bool print) {
+    hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    eva_t curr_eva = base_eva + (byte_offset<<2);
+    uint32_t read_data[len];
+    hb_mc_manycore_eva_read(mc, &default_map, &target, &curr_eva, read_data, len*sizeof(uint32_t));
+    // translate to float point number
+	uint32_t read_data_hex;
 	for (size_t i = 0; i < len; i++) {
-		hb_mc_npa_t npa = { .x = (base_npa.x), .y = (base_npa.y), .epa = (base_npa.epa + base_addr + i)*4 };
-		err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		if (err != HB_MC_SUCCESS) {
-			bsg_pr_err("%s: failed to read A[%d] "
-				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, base_npa.x, base_npa.y, base_addr + i);
-		}
-        read_float[i] = flt(read_data);
+        read_data_hex = read_data[i];
+        read_float[i] = flt(read_data_hex);
         if (print)
-		    printf("Read result[%d] = 0x%x(%f) \n", i, read_data, flt(read_data));
+		    printf("Read result[%d] = 0x%x(%f) \n", i, read_data_hex, read_float[i]);
 	}
 }
 
@@ -461,7 +434,7 @@ void fc_dw_drlp_map(NN_layer *fc) {
 	fc->img_w_count = (fc->xmove + 1)*(fc->ymove + 1);
 }
 
-void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *weight, float *bias, uint32_t base_addr) {
+void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *weight, float *bias, uint32_t base_addr) {
 	float number;
 	uint32_t addr=base_addr;
 	int index;
@@ -473,7 +446,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                 addr++;
             }
             // Weights
@@ -483,7 +456,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                    for (int x=0; x<4; x++) {
                             index = x + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -495,7 +468,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                    for (int x=0; x<4; x++) {
                             index = x + (y+4)*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -507,7 +480,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                    for (int x=0; x<4; x++) {
                             index = (x+4) + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -519,7 +492,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                    for (int x=0; x<4; x++) {
                             index = (x+4) + (y+4)*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -534,7 +507,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                 addr++;
             }
             // Weights
@@ -544,7 +517,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                    for (int x=0; x<4; x++) {
                             index = x + y*4 + z*4*4+ (pe+pe_offset)*4*4*32;
                             number = weight[index];
-	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -559,7 +532,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+	            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                 addr++;
             }
             // Weights
@@ -570,7 +543,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                        for (int x=0; x<3; x++) {
                                 index = x + y*3 + (z*2+z_offset)*3*3+ (pe+pe_offset)*3*3*64;
                                 number = weight[index];
-					            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                                 addr++;
                             }
                         }
@@ -582,7 +555,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 }
 
 
-void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *weight, float *bias, uint32_t base_addr) {
+void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer fc, float *weight, float *bias, uint32_t base_addr) {
 	fc_fp_drlp_map(&fc);
 
 	float number;
@@ -602,7 +575,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc
 						number = 0.0;
 					else
 						number = bias[index];
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
 					addr++;
                     // printf("Write bias %f\n", number);
 				}
@@ -610,7 +583,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc
 			else {
 				if (z==0) {
 					number = 0.0;
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
 					addr++;
 				}
 			}
@@ -625,7 +598,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc
 						number = 0.0;
 					else
 						number = weight[index];
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
 					addr++;
                     // if (fc.layer==3 && i==0 && z==0)
                         // printf("weight[%d] = %f \n", addr, number);
@@ -636,7 +609,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc
 }
 
 
-void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *weight) {
+void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *weight) {
 	float number;
 	int index;
     uint32_t addr = nn.wT_base_addr;
@@ -670,7 +643,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                        for (int i=i_base*6; i<i_base*6+6; i++) {
                                 index = y + (x+ff)*64 + z*64*4 + i*64*4*23;
                                 number = newA[index];
-					            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                                 addr++;
                             }
                         }
@@ -688,7 +661,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
                 // Bias
 	            for (int i=0; i<16; i++) {
                     number = 0.0;
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                     addr++;
                 }
                 // Weights
@@ -706,7 +679,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
                                     if (repeat == 3)
                                         index = (3- (x*2)) + (3- (y*2))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
                                     number = weight[index];
-					                write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					                eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                                     addr++;
                                 }
                             }
@@ -724,7 +697,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
             // Bias
 	        for (int i=0; i<16; i++) {
                 number = 0.0;
-		        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                 addr++;
             }
             // Weights
@@ -735,7 +708,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
 	                        for (int x=0; x<3; x++) {
                                 index = (2-x) + (2-y)*3 + (pe+pe_offset)*3*3+ (z*2+z_offset)*3*3*64;
                                 number = weight[index];
-		                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		                        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                                 addr++;
                             }
                         }
@@ -746,7 +719,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer 
     }
 }
 
-void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *w) {
+void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *w) {
 	float number;
 	int index, index0, index1, index_T;
     uint32_t addr = nn.wT_base_addr;
@@ -758,7 +731,7 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn
         for (int z=0; z<32; z++) {
             for (int j=0; j<16; j++) {
                 number = 0.0;
-		        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		        eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                 addr++;
             }
             for (int j=0; j<16; j++) {
@@ -771,7 +744,7 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn
                         index = (index_T%total_row)*total_col + (index_T/total_row);
                         number = w[index];
                     }
-		            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                     addr++;
                 }
             }
@@ -785,14 +758,14 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn
                     if (slides==0) {
                         for (int j=0; j<16; j++) {
                             number = 0.0;
-		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		                    eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
                     else {
                         if (z==0) {
                             number == 0.0;
-		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		                    eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -808,7 +781,7 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn
                                 index = (index_T%total_row)*total_col + (index_T/total_row);
                                 number = w[index];
                             }
-		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		                    eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
                             addr++;
                         }
                     }
@@ -818,36 +791,27 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn
     }
 }
 
-void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *w, float *wT) {
-	int in_act_size = fc.input_size;
-	int out_act_size = fc.output_size;
-	host_transpose(w, wT, in_act_size, out_act_size);
-	fc.input_size = out_act_size;
-	fc.output_size = in_act_size;
-	float zero_bias[1000] = {0.0};
-	fc_fp_wrt_wgt(mc, drlp_dram_npa, fc, wT, zero_bias, fc.wT_base_addr);
-}
+// void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *w, float *wT) {
+// 	int in_act_size = fc.input_size;
+// 	int out_act_size = fc.output_size;
+// 	host_transpose(w, wT, in_act_size, out_act_size);
+// 	fc.input_size = out_act_size;
+// 	fc.output_size = in_act_size;
+// 	float zero_bias[1000] = {0.0};
+// 	fc_fp_wrt_wgt(mc, drlp_dram_npa, fc, wT, zero_bias, fc.wT_base_addr);
+// }
 
-void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dW, NN_layer fc){
+void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dW, NN_layer fc){
     int row = fc.input_size;
     int col = fc.output_size;
 	uint32_t addr = fc.dw_base_addr+1;
 	int index;
-	int read_data;
-    int err;
 	for (int i = 0; i < col; i++) {
 		for (int j = 0; j < row; j++) {
-			hb_mc_npa_t npa = { .x = (drlp_dram_npa.x), .y = (drlp_dram_npa.y), .epa = (drlp_dram_npa.epa + addr)*4 };
-			err = hb_mc_manycore_read_mem(mc, &npa,
-					      &read_data, sizeof(read_data));
-		    if (err != HB_MC_SUCCESS) {
-		    	bsg_pr_err("%s: failed to read from DRAM: [%d]\n", __func__, addr);
-		    }
 			index = i*row+j;
-			dW[index] = flt(read_data);
-            bsg_pr_test_info("Read dW[%d](%d) (%x)%.16f \n", index,  addr, read_data, dW[index]);
+            eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
+            bsg_pr_test_info("Read dW[%d](%d) %.16f \n", index,  addr, dW[index]);
 			addr++;
-			/* bsg_pr_test_info("dY_host %.5f, X_host %.5f \n", dY_host[i], X_host[j]); */
 		}
 		if (row<18) 
 			addr += (18-row);
@@ -860,17 +824,9 @@ void read_fc_db (hb_mc_manycore_t *mc, float *db, NN_layer fc) {
     int size = fc.output_size;
 	int read_data;
 	for (int i = 0; i < size; i++) {
-        // hb_mc_npa_t npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (y_addr+i)*4 };
-		// hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
-        // bsg_pr_test_info("Read y(%d) %x \n", i, read_data);
-        // if (read_data != 0) {
-            hb_mc_npa_t npa2 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (dy_addr+i)*4 };
-		    hb_mc_manycore_read_mem(mc, &npa2, &read_data, sizeof(read_data));
-            db[i] = flt(read_data);
-        // }
-        // else {
-            // db[i] = 0.0;
-        // }
+        hb_mc_npa_t npa2 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (dy_addr+i)*4 };
+		hb_mc_manycore_read_mem(mc, &npa2, &read_data, sizeof(read_data));
+        db[i] = flt(read_data);
         if (i < 1000)
             bsg_pr_test_info("Read db(%d) %f \n", i, db[i]);
     }
@@ -1093,7 +1049,7 @@ void drlp_fc_dx(hb_mc_manycore_t *mc, NN_layer fc) {
 	}
 } 
 
-void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, NN_layer *nn, int num_layer, float* results) {
+void nn_fp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *state, NN_layer *nn, int num_layer, float* results) {
     bsg_pr_test_info("========Write state to DRAM on device========\n");
 	float number;
 	uint32_t addr=STATE_ADDR;
@@ -1102,7 +1058,7 @@ void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, NN_lay
 	        for (int y = 0; y < 84; y++) { 
 	            for (int i = 0; i < 4; i++) { 
 		            number = state[x*4+i + y*84 + z*84*84];
-		            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		            eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
 		            addr++; 
                 }
             }
@@ -1123,10 +1079,10 @@ void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, NN_lay
 	}
 
 	// bsg_pr_test_info("========Read FP results========\n");
-	read_drlp_dram(mc, drlp_dram_npa, FP_RST_ADDR+1, ACTION_SIZE, results, false);
+	eva_offset_read_fp(mc, drlp_dram_eva, FP_RST_ADDR+1, ACTION_SIZE, results, false);
 }
 
-void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, NN_layer *nn, int num_layer) {
+void nn_bp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dy, NN_layer *nn, int num_layer) {
     bsg_pr_test_info("========Write state to DRAM on device========\n");
 	int end=18;
 	if (ACTION_SIZE>18)
@@ -1139,7 +1095,7 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, NN_layer 
 		else
 			number = 0.0;
 		addr = OUT_GD_ADDR+ i; 
-		write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
 	}
 
     bsg_pr_test_info("========Call DRLP NN BP========\n");
@@ -1174,7 +1130,7 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, NN_layer 
 * High-level DQN API
 ******************************************************************************************************************/
 
-void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa,  Transition *trans, NN_layer *nn, int num_layer, float epsilon) {
+void dqn_act(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva,  Transition *trans, NN_layer *nn, int num_layer, float epsilon) {
 	float number;
 	int addr;
 	float prob = rand()/(float)(RAND_MAX);
@@ -1183,7 +1139,7 @@ void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa,  Transition *trans
 	}
 	else {
 		float results[ACTION_SIZE];
-		nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, results);
+		nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, results);
 		int max_index = 0;
 		for (int i = 0; i < ACTION_SIZE; i++) { 
 			if (results[i] > results[max_index])
@@ -1194,12 +1150,12 @@ void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa,  Transition *trans
 	}
 }
 
-void dqn_train(hb_mc_manycore_t *mc,  hb_mc_npa_t drlp_dram_npa, Transition *trans, NN_layer *nn, int num_layer, float* fc2_dy, float gamma) {
+void dqn_train(hb_mc_manycore_t *mc,  hb_mc_eva_t drlp_dram_eva, Transition *trans, NN_layer *nn, int num_layer, float* fc2_dy, float gamma) {
 	// FP
 	// next state
 	float next_values[ACTION_SIZE];
 	int next_max_index = 0;
-	nn_fp(mc, drlp_dram_npa, trans->next_state, nn, num_layer, next_values);
+	nn_fp(mc, drlp_dram_eva, trans->next_state, nn, num_layer, next_values);
 
 	for (int i = 0; i < ACTION_SIZE; i++) { 
 		if (next_values[i] > next_values[next_max_index])
@@ -1208,7 +1164,7 @@ void dqn_train(hb_mc_manycore_t *mc,  hb_mc_npa_t drlp_dram_npa, Transition *tra
 	}
 	// // state
 	float state_values[ACTION_SIZE];
-	nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, state_values);
+	nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, state_values);
     for (int i = 0; i < ACTION_SIZE; i++) { 
         bsg_pr_test_info("DRLP Train: state_value[%d]=%f\n", i, state_values[i]);
     }
@@ -1235,6 +1191,6 @@ void dqn_train(hb_mc_manycore_t *mc,  hb_mc_npa_t drlp_dram_npa, Transition *tra
     }
 
     // BP
-    nn_bp(mc, drlp_dram_npa, fc2_dy, nn, num_layer);
+    nn_bp(mc, drlp_dram_eva, fc2_dy, nn, num_layer);
 
 }

@@ -25,6 +25,11 @@ int write_configure(hb_mc_manycore_t *mc, uint32_t config_array[DRLP_CFG_LEN]) {
 	return err;
 }
 
+int write_dram_configure(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva) {
+    uint32_t dram_config = drlp_dram_eva;
+	hb_mc_npa_t npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_ADDR };
+	hb_mc_manycore_write_mem(mc, &npa, &dram_config, sizeof(dram_config));
+}
 
 int fc2_dw (hb_mc_manycore_t *mc) {
 	int err = HB_MC_SUCCESS;
