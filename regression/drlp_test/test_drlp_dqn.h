@@ -454,6 +454,67 @@ int write_configure(hb_mc_manycore_t *mc, uint32_t config_array[DRLP_CFG_LEN]) {
 	return err;
 }
 
+void write_drlp_dram_eva_float (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, uint32_t addr, float number) {
+    hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    eva_t curr_eva = drlp_dram_eva + (addr<<2);
+	uint32_t num_int = hex(number);
+    hb_mc_manycore_eva_write(mc, &default_map, &target, &curr_eva, &num_int, sizeof(uint32_t));
+}
+
+void test_eva_read (hb_mc_manycore_t *mc, hb_mc_coordinate_t *target, hb_mc_eva_t *eva_read, void *read_data, size_t sz) {
+    int err;
+    size_t src_sz, xfer_sz;
+    hb_mc_npa_t src_npa;
+    char *srcp;
+    hb_mc_eva_t curr_eva = *eva_read;
+
+    srcp = (char *)read_data;
+    while(sz > 0){
+            err = hb_mc_eva_to_npa(mc, &default_map, target, &curr_eva, &src_npa, &src_sz);
+            if(err != HB_MC_SUCCESS){
+                    bsg_pr_err("%s: Failed to translate EVA into a NPA\n",
+                               __func__);
+                    return err;
+            }
+
+            xfer_sz = sz < src_sz ? sz : src_sz;
+
+            char npa_str[256];
+            bsg_pr_test_info("read %zd bytes from eva %08x (%s)\n",
+                       xfer_sz,
+                       curr_eva,
+                       hb_mc_npa_to_string(&src_npa, npa_str, sizeof(npa_str)));
+
+            err = hb_mc_manycore_read_mem(mc, &src_npa, srcp, xfer_sz);
+            if(err != HB_MC_SUCCESS){
+                    bsg_pr_err("%s: Failed to copy data from host to NPA\n",
+                               __func__);
+                    return err;
+            }
+
+            srcp += xfer_sz;
+            sz -= xfer_sz;
+            curr_eva += xfer_sz;
+    }
+}
+
+
+void read_drlp_dram_eva_float (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, uint32_t addr, int len, float *read_float, bool print) {
+    hb_mc_coordinate_t target = { .x = 1, .y = 1 };
+    eva_t curr_eva = drlp_dram_eva + (addr<<2);
+    uint32_t read_data[len];
+    // hb_mc_manycore_eva_read(mc, &default_map, &target, &curr_eva, read_data, len*sizeof(uint32_t));
+	uint32_t read_data_hex;
+	for (size_t i = 0; i < len; i++) {
+        test_eva_read(mc, &target, &curr_eva, &read_data_hex, sizeof(uint32_t));
+        curr_eva = curr_eva + 4;
+        // read_data_hex = read_data[i];
+        read_float[i] = flt(read_data_hex);
+        if (print)
+		    printf("Read result[%d] = 0x%x(%f) \n", i, read_data_hex, read_float[i]);
+	}
+}
+
 void write_drlp_dram_float(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, uint32_t addr, float number) {
     hb_mc_idx_t drlp_dram_x = drlp_dram_npa.x;
     hb_mc_idx_t drlp_dram_y = drlp_dram_npa.y;
@@ -568,7 +629,7 @@ void fc_dw_drlp_map(FC_layer *fc) {
 	fc->img_w_count = (fc->xmove + 1)*(fc->ymove + 1);
 }
 
-void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bias, hb_mc_npa_t drlp_dram_npa, uint32_t base_addr) {
+void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bias, hb_mc_eva_t drlp_dram_eva, uint32_t base_addr) {
 	fc_fp_drlp_map(&fc);
 
 	float number;
@@ -588,7 +649,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bia
 						number = 0.0;
 					else
 						number = bias[index];
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					write_drlp_dram_eva_float(mc, drlp_dram_eva, addr, number);
 					addr++;
                     // printf("Write bias %f\n", number);
 				}
@@ -596,7 +657,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bia
 			else {
 				if (z==0) {
 					number = 0.0;
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					write_drlp_dram_eva_float(mc, drlp_dram_eva, addr, number);
 					addr++;
 				}
 			}
@@ -612,7 +673,7 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bia
 					else
 						number = weight[index];
                     // printf("weight[%d] = %x \n", addr, hex(number));
-					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+					write_drlp_dram_eva_float(mc, drlp_dram_eva, addr, number);
 					addr++;
 				}
 			}
@@ -620,14 +681,14 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, FC_layer fc, float *weight, float *bia
 	}
 }
 
-void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, FC_layer fc, float *w, float *wT) {
+void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, FC_layer fc, float *w, float *wT) {
 	int in_act_size = fc.input_size;
 	int out_act_size = fc.output_size;
 	host_transpose(w, wT, in_act_size, out_act_size);
 	fc.input_size = out_act_size;
 	fc.output_size = in_act_size;
 	float zero_bias[1000] = {0.0};
-	fc_fp_wrt_wgt(mc, fc, wT, zero_bias, drlp_dram_npa, fc.wT_base_addr);
+	fc_fp_wrt_wgt(mc, fc, wT, zero_bias, drlp_dram_eva, fc.wT_base_addr);
 }
 
 void read_dw (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dW, FC_layer fc){
@@ -805,7 +866,7 @@ void drlp_fc_dx(hb_mc_manycore_t *mc, FC_layer fc) {
 	}
 } 
 
-void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, FC_layer *nn, int num_layer, float* results) {
+void nn_fp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *state, FC_layer *nn, int num_layer, float* results) {
     // bsg_pr_test_info("========NN_FP========\n");
 	int end=18;
 	if (STATE_SIZE>18)
@@ -818,18 +879,18 @@ void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, FC_lay
 		else
 			number = 0.0;
 		addr = STATE_ADDR + i; 
-		write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		write_drlp_dram_eva_float(mc, drlp_dram_eva, addr, number);
 	}
 
 	for (int i = 0; i < num_layer; i++) { 
 		drlp_fc_fp(mc, nn[i]);
 	}
 
-    // bsg_pr_test_info("========Read FP results========\n");
-	read_drlp_dram(mc, drlp_dram_npa, FC2_Y_ADDR+1, ACTION_SIZE, results, false);
+    bsg_pr_test_info("========Read FP results========\n");
+	read_drlp_dram_eva_float(mc, drlp_dram_eva, FC2_Y_ADDR+1, ACTION_SIZE, results, true);
 }
 
-void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, FC_layer *nn, int num_layer) {
+void nn_bp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dy, FC_layer *nn, int num_layer) {
 	// bsg_pr_test_info("========Write state to DRAM on device========\n");
 	int end=18;
 	if (ACTION_SIZE>18)
@@ -842,10 +903,10 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, FC_layer 
 		else
 			number = 0.0;
 		addr = FC2_dY_ADDR + i; 
-		write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
+		write_drlp_dram_eva_float(mc, drlp_dram_eva, addr, number);
 	}
 
-    // bsg_pr_test_info("========Call DRLP NN BP========\n");
+    bsg_pr_test_info("========Call DRLP NN BP========\n");
 	for (int i = num_layer-1; i > 0; i--) { 
 		drlp_fc_dw(mc, nn[i]);
 		// delay
@@ -859,7 +920,7 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, FC_layer 
 * High-level DQN API
 ******************************************************************************************************************/
 
-void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *trans, FC_layer *nn, int num_layer, float epsilon) {
+void dqn_act(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, Transition *trans, FC_layer *nn, int num_layer, float epsilon) {
 	float number;
 	int addr;
 	float prob = rand()/(float)(RAND_MAX);
@@ -868,7 +929,7 @@ void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *trans,
 	}
 	else {
 		float results[ACTION_SIZE];
-		nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, results);
+		nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, results);
 		int max_index = 0;
 		for (int i = 1; i < ACTION_SIZE; i++) { 
 			if (results[i] > results[max_index])
@@ -878,14 +939,14 @@ void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *trans,
 	}
 }
 
-void dqn_train(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *trans, FC_layer *nn, int num_layer, float* fc2_dy, float gamma) {
+void dqn_train(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, Transition *trans, FC_layer *nn, int num_layer, float* fc2_dy, float gamma) {
 	// FP
 	// next state
     // for (int i = 0; i < STATE_SIZE; i++)
         // bsg_pr_test_info("DRLP Train: next_state[%d]=%f\n", i, trans->next_state[i]);
 	float next_values[ACTION_SIZE];
 	int next_max_index = 0;
-	nn_fp(mc, drlp_dram_npa, trans->next_state, nn, num_layer, next_values);
+	nn_fp(mc, drlp_dram_eva, trans->next_state, nn, num_layer, next_values);
 
 	for (int i = 0; i < ACTION_SIZE; i++) { 
 		if (next_values[i] > next_values[next_max_index])
@@ -896,7 +957,7 @@ void dqn_train(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *tran
     // for (int i = 0; i < STATE_SIZE; i++)
         // bsg_pr_test_info("DRLP Train: state[%d]=%f\n", i, trans->state[i]);
 	float state_values[ACTION_SIZE];
-	nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, state_values);
+	nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, state_values);
     for (int i = 0; i < ACTION_SIZE; i++) { 
         // bsg_pr_test_info("DRLP Train: state_value[%d]=%f\n", i, state_values[i]);
     }
@@ -922,7 +983,7 @@ void dqn_train(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, Transition *tran
     }
 
 	// BP
-	nn_bp(mc, drlp_dram_npa, fc2_dy, nn, num_layer);
+	nn_bp(mc, drlp_dram_eva, fc2_dy, nn, num_layer);
 
 
 }

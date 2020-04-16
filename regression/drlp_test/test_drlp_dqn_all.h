@@ -1,115 +1,54 @@
 #include <Python.h>
-#include <numpy/arrayobject.h>
-#include "test_drlp_fpbp.h"
+// #include <numpy/arrayobject.h>
+#include </usr/local/lib64/python3.6/site-packages/numpy/core/include/numpy/arrayobject.h>
+// #include "test_drlp_fpbp.h"
+
+#ifndef __LIBRARY_TESTS_H
+#define __LIBRARY_TESTS_H
+
+#include <bsg_manycore_loader.h>
+#include <bsg_manycore_errno.h>	
+#include <bsg_manycore_printing.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <string.h>
+#include <time.h>
+#include <stdlib.h>
+#include "spmd_tests.h"
+#include "cuda_tests.h"
+
+#include "../cl_manycore_regression.h"
+
+#endif 
+
+#pragma once
+
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <string.h>
+#include <time.h>
+#include <stdlib.h>
+#include <bsg_manycore.h>
+#include <bsg_manycore_npa.h>
+#include <bsg_manycore_printing.h>
+#include <inttypes.h>
+
+
 #include "test_drlp_host_gd.h"
+#include "test_drlp_param.h"
+#include "test_drlp_struct.h"
+#include "test_drlp_alloc_mem.h"
+#include "test_drlp_layer_config.h"
 #include <math.h>
-
-#define hex(X) (*(int*)&X)
-#define flt(X) (*(float*)&X)
-
-// Test game
-#define FRAME_SIZE (84*84)
-#define FRAME_NUM 4 
-#define STATE_SIZE FRAME_SIZE*FRAME_NUM 
-#define ACTION_SIZE 4
-
-// NN config
-#define CONV1_W_SIZE (8*8*4*32)
-#define CONV1_Y_SIZE (20*20*32)
-#define CONV2_W_SIZE (4*4*32*64)
-#define CONV2_Y_SIZE (9*9*64)
-#define CONV3_W_SIZE (3*3*64*64)
-#define CONV3_Y_SIZE (7*7*64)
-// #define FC1_Y_SIZE 512
-#define FC1_Y_SIZE 18
-#define FC1_W_SIZE CONV3_Y_SIZE*FC1_Y_SIZE
-#define FC2_Y_SIZE ACTION_SIZE
-#define FC2_W_SIZE FC1_Y_SIZE*FC2_Y_SIZE
-// In DRLP
-#define RMEM_ADDR0 0 
-#define RMEM_ADDR1 12800
-#define RMEM_ADDR2 17984 
-#define RMEM_ADDR3 21120 
-#define RMEM_ADDR4 21632 
-// DRAM
-#define STATE_ADDR 0
-#define CONV1_WGT_ADDR (29*1024)
-#define CONV2_WGT_ADDR (38*1024)
-#define CONV3_WGT_ADDR (71*1024)
-#define FC1_WGT_ADDR (108*1024)
-#define FC2_WGT_ADDR (1722*1024)
-#define OUT_GD_ADDR (1725*1024)
-#define FC2BP_WGT_ADDR (1726*1024)
-#define FC1BP_WGT_ADDR (1736*1024)
-#define CONV3BP_WGT_ADDR (3611*1024)
-#define CONV2BP_WGT_ADDR (3648*1024)
-#define CONV1BP_ACT_ADDR (3681*1024)
-#define FC2BP_DW_ADDR (3787*1024)
-#define FC1BP_DW_ADDR (3790*1024)
-#define CONV3BP_DW_ADDR (5413*1024)
-#define CONV2BP_DW_ADDR (5450*1024)
-#define CONV1BP_DW_ADDR (5483*1024)
-#define FP_RST_ADDR (5500*1024)
-
-// RL
-#define RE_MEM_SIZE 5000
-#define RE_MEM_INIT_SIZE 1
-#define TRANSITION_SIZE 2*STATE_SIZE+3
-#define STEP_MAX 1
-#define TRAIN_FREQ 1
-#define LR 0.001
-
-// Manycore
-#define DRLP_X 3 
-#define DRLP_Y 4
-#define DRAM_X 3
-#define DRAM_Y 5
-#define RE_DRAM_X 2
-#define RE_DRAM_Y 5
-
-// Others
-#define ONCHIP 0
-#define DMA 1
-#define HOST_COMPARE false
-
-typedef struct {
-	float state[STATE_SIZE];
-	float next_state[STATE_SIZE];
-	float reward;
-	uint32_t done;
-	uint32_t action;
-} Transition;
-
-typedef struct {
-	int input_size;
-	int output_size;
-	int weight_size;
-	bool input_src; // 0: on-chip, 1: DRAM
-	bool output_dst;
-	bool relu;
-	int layer; // layer=4 means last fc layer, 3 mean other FC
-    bool FC_CONV;
-	// for drlp mapping
-	int input_padding;
-	int weight_padding;
-	int slides;
-	uint32_t act_base_addr;
-	uint32_t wgt_base_addr;
-	uint32_t rst_base_addr;
-	uint32_t dy_base_addr;
-	uint32_t dw_base_addr;
-	uint32_t wT_base_addr;
-	uint32_t dx_base_addr;
-	int pe_on;
-	int ymove;
-	int zmove;
-	int xmove;
-	int img_w_count;
-} NN_layer;
-
 void param_random(float *param, int size){
 	for (int i = 0; i < size; i++)
-		param[i] = rand()/(float)(RAND_MAX);
+        if (rand()%2==0)
+		    param[i] = rand()/(float)(RAND_MAX)/10;
+        else
+		    param[i] = -rand()/(float)(RAND_MAX)/10;
 }
 
 /*****************************************************************************************************************
@@ -143,7 +82,7 @@ PyObject* py_init(char *game_name) {
 }
 
 void call_reset(Transition *trans, PyObject *pinst) { 
-    bsg_pr_test_info("Reset\n");
+    printf("call reset\n");
 	PyObject *preset = PyObject_GetAttrString(pinst, "reset");
 	PyObject *pargs  = Py_BuildValue("()");
 	PyArrayObject *pstate = PyEval_CallObject(preset, pargs);
@@ -203,7 +142,7 @@ void call_step(Transition *trans, PyObject *pinst) {
 		// Read reward and done
 		trans->reward = *(float*)(pcatall->data + (rows-1)*row_step);
         // printf("Inside Reward is % f\n", trans->reward);
-		trans->done = *(int*)(pcatall->data + (rows-1)*row_step + 1*col_step);
+		trans->done = *(float*)(pcatall->data + (rows-1)*row_step + 1*col_step);
         // printf("Inside Done is %d \n", trans->done);
 	}
 	else {
@@ -216,80 +155,79 @@ void call_step(Transition *trans, PyObject *pinst) {
 * For Replay Memory 
 ******************************************************************************************************************/
 
-uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position) {
+uint32_t re_mem_push(hb_mc_manycore_t *mc, hb_mc_npa_t base_npa,  Transition *trans, uint32_t position) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
+
 	int rc;
 	float number;
 	uint32_t num_int;
 	uint32_t trans_size = TRANSITION_SIZE;
-	uint32_t addr = (position*trans_size);
+	uint32_t addr = re_mem_epa + (position*trans_size);
 	// State
-    bsg_pr_test_info("push state\n");
 	for (int i=0; i<STATE_SIZE; i++) {
 		number = trans->state[i];
         // bsg_pr_test_info("state[%d]=%f\n",i,number);
 		num_int = hex(number);
-		hb_mc_npa_t npa = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+		hb_mc_npa_t npa = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 		rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
 		if (rc != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to write state 0x%08" PRIx32 " "
 				   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+				   __func__, num_int, re_mem_x, re_mem_y, addr);
 			hb_mc_manycore_exit(mc);
 		}
 		addr++;
 	}
 
 	// Next state
-    bsg_pr_test_info("push next state\n");
 	for (int i=0; i<STATE_SIZE; i++) {
 		number = trans->next_state[i];
 		num_int = hex(number);
-		hb_mc_npa_t npa = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+		hb_mc_npa_t npa = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 		rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
 		if (rc != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to write next_state 0x%08" PRIx32 " "
 				   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+				   __func__, num_int, re_mem_x, re_mem_y, addr);
 			hb_mc_manycore_exit(mc);
 		}
 		addr++;
 	}
 
 	// Action
-    bsg_pr_test_info("push next action\n");
 	num_int = trans->action;
-	hb_mc_npa_t npa0 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa0 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa0, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write action 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 	addr++;
 
 	// Reward
-    bsg_pr_test_info("push reward\n");
 	num_int = hex(trans->reward);
-	hb_mc_npa_t npa1 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa1 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa1, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write reward 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 	addr++;
 
 	// Done
-    bsg_pr_test_info("push done\n");
 	num_int = trans->done;
-	hb_mc_npa_t npa2 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa2 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	rc = hb_mc_manycore_write_mem(mc, &npa2, &num_int, sizeof(num_int));
 	if (rc != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to write done 0x%08" PRIx32 " "
 			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-			   __func__, num_int, RE_DRAM_X, RE_DRAM_Y, addr);
+			   __func__, num_int, re_mem_x, re_mem_y, addr);
 		hb_mc_manycore_exit(mc);
 	}
 
@@ -299,36 +237,34 @@ uint32_t re_mem_push(hb_mc_manycore_t *mc, Transition *trans, uint32_t position)
 		return position+1;
 }
 
-int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
-	// uint32_t position = (rand()%size);
-	uint32_t position = 0;
+int re_mem_sample(hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, Transition *trans, uint32_t size) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
+	uint32_t position = (rand()%size);
 	uint32_t trans_size = TRANSITION_SIZE;
-	uint32_t addr = position*trans_size;
+	uint32_t addr = re_mem_epa + (position*trans_size);
 	uint32_t num_int;
 	int err;
-    printf("Sample %dth transition from replay memory addr%d.\n", position, addr);
+    // printf("Sample %dth transition from replay memory addr%d.\n", position, addr);
 
 	// State
-    bsg_pr_test_info("sample state\n");
 	for (int i=0; i<STATE_SIZE; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4 };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = addr*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa, &num_int, sizeof(num_int));
 		trans->state[i] = flt(num_int);
-        // if (i<100 || i > (STATE_SIZE-100))
-            // printf("state[%d]=%f.\n", i, trans->state[i]);
-
 		if (err != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to read from replay memory: %s\n", __func__, hb_mc_strerror(err));
 			hb_mc_manycore_exit(mc);
 			return err;
 		}
+        // printf("Read state(%d)%f from epa(%d).\n", i, flt(num_int), addr*4);
 		addr++;
 	}
 
 	// Next state
-    bsg_pr_test_info("sample next state\n");
 	for (int i=0; i<STATE_SIZE; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4 };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = addr*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa, &num_int, sizeof(num_int));
 		trans->next_state[i] = flt(num_int);
 		if (err != HB_MC_SUCCESS) {
@@ -340,8 +276,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	}
 
 	// Action
-    bsg_pr_test_info("sample action\n");
-	hb_mc_npa_t npa0 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa0 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa0, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from replay memory: %s\n", __func__, hb_mc_strerror(err));
@@ -352,8 +287,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	addr++;
 
 	// Reward
-    bsg_pr_test_info("sample reward\n");
-	hb_mc_npa_t npa1 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa1 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa1, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from manycore DMEM: %s\n", __func__, hb_mc_strerror(err));
@@ -364,8 +298,7 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	addr++;
 
 	// Done
-    bsg_pr_test_info("sample done\n");
-	hb_mc_npa_t npa2 = {.x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = addr*4};
+	hb_mc_npa_t npa2 = {.x = re_mem_x, .y = re_mem_y, .epa = addr*4};
 	err = hb_mc_manycore_read_mem(mc, &npa2, &num_int, sizeof(num_int));
 	if (err != HB_MC_SUCCESS) {
 		bsg_pr_err("%s: failed to read from manycore DMEM: %s\n", __func__, hb_mc_strerror(err));
@@ -377,19 +310,75 @@ int re_mem_sample(hb_mc_manycore_t *mc, Transition *trans, uint32_t size) {
 	return err;
 }
 
-void read_re_mem (hb_mc_manycore_t *mc, uint32_t base_addr, int len) {
+void read_re_mem (hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, uint32_t base_addr, int len) {
+    hb_mc_idx_t re_mem_x = base_npa.x;
+    hb_mc_idx_t re_mem_y = base_npa.y;
+    hb_mc_epa_t re_mem_epa = base_npa.epa;
 	uint32_t read_data;
 	int err;
 	for (size_t i = 0; i < len; i++) {
-		hb_mc_npa_t npa = { .x = RE_DRAM_X, .y = RE_DRAM_Y, .epa = base_addr*4 + (i*4) };
+		hb_mc_npa_t npa = { .x = re_mem_x, .y = re_mem_y, .epa = (re_mem_epa + base_addr + i)*4 };
 		err = hb_mc_manycore_read_mem(mc, &npa,
 					      &read_data, sizeof(read_data));
 		if (err != HB_MC_SUCCESS) {
 			bsg_pr_err("%s: failed to read A[%d] "
 				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
-				   i, RE_DRAM_X, RE_DRAM_Y, base_addr + i);
+				   i, re_mem_x, re_mem_y, base_addr + i);
 		}
 		printf("Read result(%d) %x \n", i, read_data);
+	}
+}
+
+/*****************************************************************************************************************
+* DRLP configure
+******************************************************************************************************************/
+
+int write_dram_configure(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa) {
+    uint32_t dram_config = drlp_dram_npa.x;
+	hb_mc_npa_t npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_X_ADDR };
+	hb_mc_manycore_write_mem(mc, &npa, &dram_config, sizeof(dram_config));
+
+    dram_config = drlp_dram_npa.y;
+	hb_mc_npa_t npa0 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_Y_ADDR };
+	hb_mc_manycore_write_mem(mc, &npa0, &dram_config, sizeof(dram_config));
+
+    dram_config = drlp_dram_npa.epa;
+	hb_mc_npa_t npa1 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_BASE_ADDR };
+	hb_mc_manycore_write_mem(mc, &npa1, &dram_config, sizeof(dram_config));
+}
+
+void write_drlp_dram_float(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, uint32_t addr, float number) {
+    hb_mc_idx_t drlp_dram_x = drlp_dram_npa.x;
+    hb_mc_idx_t drlp_dram_y = drlp_dram_npa.y;
+    hb_mc_epa_t drlp_dram_epa = drlp_dram_npa.epa;
+	uint32_t num_int = hex(number);
+	hb_mc_npa_t npa = {.x = drlp_dram_x, .y = drlp_dram_y, .epa = (drlp_dram_epa + addr)*4};
+	int rc = hb_mc_manycore_write_mem(mc, &npa, &num_int, sizeof(num_int));
+	if (rc != HB_MC_SUCCESS) {
+		bsg_pr_err("%s: failed to write 0x%08" PRIx32 " "
+			   "to DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
+			   __func__,  num_int,
+			   drlp_dram_x, drlp_dram_y,
+			   addr);
+		hb_mc_manycore_exit(mc);
+	}
+}
+
+void read_drlp_dram (hb_mc_manycore_t *mc, hb_mc_npa_t base_npa, uint32_t base_addr, int len, float *read_float, bool print) {
+	uint32_t read_data;
+	int err;
+	for (size_t i = 0; i < len; i++) {
+		hb_mc_npa_t npa = { .x = (base_npa.x), .y = (base_npa.y), .epa = (base_npa.epa + base_addr + i)*4 };
+		err = hb_mc_manycore_read_mem(mc, &npa,
+					      &read_data, sizeof(read_data));
+		if (err != HB_MC_SUCCESS) {
+			bsg_pr_err("%s: failed to read A[%d] "
+				   "from DRAM coord(%d,%d) @ 0x%08" PRIx32 "\n",
+				   i, base_npa.x, base_npa.y, base_addr + i);
+		}
+        read_float[i] = flt(read_data);
+        if (print)
+		    printf("Read result[%d] = 0x%x(%f) \n", i, read_data, flt(read_data));
 	}
 }
 
@@ -472,7 +461,7 @@ void fc_dw_drlp_map(NN_layer *fc) {
 	fc->img_w_count = (fc->xmove + 1)*(fc->ymove + 1);
 }
 
-void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *bias, uint32_t base_addr) {
+void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *weight, float *bias, uint32_t base_addr) {
 	float number;
 	uint32_t addr=base_addr;
 	int index;
@@ -484,7 +473,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-                write_dram_float(mc, addr, number);
+	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                 addr++;
             }
             // Weights
@@ -494,7 +483,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                    for (int x=0; x<4; x++) {
                             index = x + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-                            write_dram_float(mc, addr, number);
+	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -506,7 +495,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                    for (int x=0; x<4; x++) {
                             index = x + (y+4)*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-                            write_dram_float(mc, addr, number);
+	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -518,7 +507,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                    for (int x=0; x<4; x++) {
                             index = (x+4) + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-                            write_dram_float(mc, addr, number);
+	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -530,7 +519,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                    for (int x=0; x<4; x++) {
                             index = (x+4) + (y+4)*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
-                            write_dram_float(mc, addr, number);
+	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -545,7 +534,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-                write_dram_float(mc, addr, number);
+	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                 addr++;
             }
             // Weights
@@ -555,7 +544,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                    for (int x=0; x<4; x++) {
                             index = x + y*4 + z*4*4+ (pe+pe_offset)*4*4*32;
                             number = weight[index];
-                            write_dram_float(mc, addr, number);
+	                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -570,7 +559,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	        for (int i=0; i<16; i++) {
                 index = i+pe_offset;
                 number = bias[index];
-                write_dram_float(mc, addr, number);
+	            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                 addr++;
             }
             // Weights
@@ -581,7 +570,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 	                        for (int x=0; x<3; x++) {
                                 index = x + y*3 + (z*2+z_offset)*3*3+ (pe+pe_offset)*3*3*64;
                                 number = weight[index];
-                                write_dram_float(mc, addr, number);
+					            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                                 addr++;
                             }
                         }
@@ -593,8 +582,9 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight, float *b
 }
 
 
-void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer fc, float *weight, float *bias, uint32_t base_addr) {
+void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *weight, float *bias, uint32_t base_addr) {
 	fc_fp_drlp_map(&fc);
+
 	float number;
 	uint32_t addr=base_addr;
 	int index;
@@ -612,15 +602,15 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer fc, float *weight, float *bia
 						number = 0.0;
 					else
 						number = bias[index];
-					write_dram_float(mc, addr, number);
+					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
 					addr++;
-					// printf("Write bias %f\n", number);
+                    // printf("Write bias %f\n", number);
 				}
 			}
 			else {
 				if (z==0) {
 					number = 0.0;
-					write_dram_float(mc, addr, number);
+					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
 					addr++;
 				}
 			}
@@ -635,26 +625,26 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer fc, float *weight, float *bia
 						number = 0.0;
 					else
 						number = weight[index];
-					// printf("weight[%d] = %f \n", index, number);
-					write_dram_float(mc, addr, number);
+					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
 					addr++;
+                    // if (fc.layer==3 && i==0 && z==0)
+                        // printf("weight[%d] = %f \n", addr, number);
 				}
 			}
 		}
 	}
 }
 
-void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
+
+void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *weight) {
 	float number;
 	int index;
     uint32_t addr = nn.wT_base_addr;
     
     if(nn.layer==0){
-        bsg_pr_test_info("conv1_bp_wrt_act begin\n");
         // Action re-arrangement for conv1_dw
         // (1,84,84,4)->(64,4,23,18)
         float newA[64*4*23*18] = {0};
-        bsg_pr_test_info("newA\n");
 	    for (int z=0; z<4; z++) {
 	        for (int x_base=0; x_base<8; x_base++) {
 	            for (int y_base=0; y_base<8; y_base++) {
@@ -671,17 +661,16 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
                 }
             }
         }
-        bsg_pr_test_info("conv1_bp_wrt_act\n");
 
 	    for (int ff=0; ff<4; ff++) {
 	        for (int z=0; z<23; z++) {
 	            for (int x=0; x<1; x++) {
 	                for (int y=0; y<64; y++) {
-	                    for (int i_base=2; i_base>-1; y--) {
+	                    for (int i_base=2; i_base>-1; i_base--) {
 	                        for (int i=i_base*6; i<i_base*6+6; i++) {
                                 index = y + (x+ff)*64 + z*64*4 + i*64*4*23;
                                 number = newA[index];
-                                write_dram_float(mc, addr, number);
+					            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                                 addr++;
                             }
                         }
@@ -699,7 +688,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
                 // Bias
 	            for (int i=0; i<16; i++) {
                     number = 0.0;
-                    write_dram_float(mc, addr, number);
+					write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                     addr++;
                 }
                 // Weights
@@ -717,7 +706,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
                                     if (repeat == 3)
                                         index = (3- (x*2)) + (3- (y*2))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
                                     number = weight[index];
-                                    write_dram_float(mc, addr, number);
+					                write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                                     addr++;
                                 }
                             }
@@ -735,7 +724,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
             // Bias
 	        for (int i=0; i<16; i++) {
                 number = 0.0;
-                write_dram_float(mc, addr, number);
+		        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                 addr++;
             }
             // Weights
@@ -746,7 +735,7 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
 	                        for (int x=0; x<3; x++) {
                                 index = (2-x) + (2-y)*3 + (pe+pe_offset)*3*3+ (z*2+z_offset)*3*3*64;
                                 number = weight[index];
-                                write_dram_float(mc, addr, number);
+		                        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                                 addr++;
                             }
                         }
@@ -757,17 +746,19 @@ void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *weight) {
     }
 }
 
-void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *w, float *wT) {
+void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer nn, float *w) {
 	float number;
-	int index, index0, index1;
+	int index, index0, index1, index_T;
     uint32_t addr = nn.wT_base_addr;
-	host_transpose(w, wT, nn.input_size, nn.output_size);
+    int total_row = nn.input_size;
+    int total_col = nn.output_size;
+	// host_transpose(w, wT, nn.input_size, nn.output_size);
     
     if(nn.layer==4) {
         for (int z=0; z<32; z++) {
             for (int j=0; j<16; j++) {
                 number = 0.0;
-                write_dram_float(mc, addr, number);
+		        write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                 addr++;
             }
             for (int j=0; j<16; j++) {
@@ -776,10 +767,11 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *w, float *wT) {
                         number = 0.0;
                     }
                     else {
-                        index = z+j*32 + i*(nn.input_size);
-                        number = wT[index];
+                        index_T = z+j*32 + i*(nn.input_size);
+                        index = (index_T%total_row)*total_col + (index_T/total_row);
+                        number = w[index];
                     }
-                    write_dram_float(mc, addr, number);
+		            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                     addr++;
                 }
             }
@@ -793,14 +785,14 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *w, float *wT) {
                     if (slides==0) {
                         for (int j=0; j<16; j++) {
                             number = 0.0;
-                            write_dram_float(mc, addr, number);
+		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
                     else {
                         if (z==0) {
                             number == 0.0;
-                            write_dram_float(mc, addr, number);
+		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -812,10 +804,11 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *w, float *wT) {
                                 number = 0.0;
                             }
                             else {
-                                index = index0*(nn.input_size) + index1;
-                                number = wT[index];
+                                index_T = index0*(nn.input_size) + index1;
+                                index = (index_T%total_row)*total_col + (index_T/total_row);
+                                number = w[index];
                             }
-                            write_dram_float(mc, addr, number);
+		                    write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
                             addr++;
                         }
                     }
@@ -825,34 +818,62 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, NN_layer nn, float *w, float *wT) {
     }
 }
 
-void wgt_transpose_and_write (hb_mc_manycore_t *mc, NN_layer fc, float *w, float *wT) {
+void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *w, float *wT) {
 	int in_act_size = fc.input_size;
 	int out_act_size = fc.output_size;
 	host_transpose(w, wT, in_act_size, out_act_size);
 	fc.input_size = out_act_size;
 	fc.output_size = in_act_size;
 	float zero_bias[1000] = {0.0};
-	fc_fp_wrt_wgt(mc, fc, wT, zero_bias, fc.wT_base_addr);
+	fc_fp_wrt_wgt(mc, drlp_dram_npa, fc, wT, zero_bias, fc.wT_base_addr);
 }
 
-void read_dw (hb_mc_manycore_t *mc, float *dW, uint32_t base_addr, int row, int col){
-	uint32_t addr=base_addr;
+void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dW, NN_layer fc){
+    int row = fc.input_size;
+    int col = fc.output_size;
+	uint32_t addr = fc.dw_base_addr+1;
 	int index;
 	int read_data;
+    int err;
 	for (int i = 0; i < col; i++) {
 		for (int j = 0; j < row; j++) {
-			hb_mc_npa_t npa = { .x = dram_coord_x, .y = dram_coord_y , .epa = addr*4 };
-			hb_mc_manycore_read_mem(mc, &npa,
+			hb_mc_npa_t npa = { .x = (drlp_dram_npa.x), .y = (drlp_dram_npa.y), .epa = (drlp_dram_npa.epa + addr)*4 };
+			err = hb_mc_manycore_read_mem(mc, &npa,
 					      &read_data, sizeof(read_data));
+		    if (err != HB_MC_SUCCESS) {
+		    	bsg_pr_err("%s: failed to read from DRAM: [%d]\n", __func__, addr);
+		    }
 			index = i*row+j;
 			dW[index] = flt(read_data);
+            bsg_pr_test_info("Read dW[%d](%d) (%x)%.16f \n", index,  addr, read_data, dW[index]);
 			addr++;
-			/* bsg_pr_test_info("Read dW(%d) %.5f, host result %.5f \n", index, dW[index], dW_host[index]); */
 			/* bsg_pr_test_info("dY_host %.5f, X_host %.5f \n", dY_host[i], X_host[j]); */
 		}
 		if (row<18) 
 			addr += (18-row);
 	}
+}
+
+void read_fc_db (hb_mc_manycore_t *mc, float *db, NN_layer fc) {
+	uint32_t dy_addr = fc.dy_base_addr;
+	uint32_t y_addr = fc.rst_base_addr + 1;
+    int size = fc.output_size;
+	int read_data;
+	for (int i = 0; i < size; i++) {
+        // hb_mc_npa_t npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (y_addr+i)*4 };
+		// hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
+        // bsg_pr_test_info("Read y(%d) %x \n", i, read_data);
+        // if (read_data != 0) {
+            hb_mc_npa_t npa2 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (dy_addr+i)*4 };
+		    hb_mc_manycore_read_mem(mc, &npa2, &read_data, sizeof(read_data));
+            db[i] = flt(read_data);
+        // }
+        // else {
+            // db[i] = 0.0;
+        // }
+        if (i < 1000)
+            bsg_pr_test_info("Read db(%d) %f \n", i, db[i]);
+    }
 }
 
 void drlp_conv_fp(hb_mc_manycore_t *mc, NN_layer fc) {
@@ -961,7 +982,19 @@ void drlp_fc_fp(hb_mc_manycore_t *mc, NN_layer fc) {
 	uint32_t config6 = (layer<<28) + (wgt_from_dram<<26) + (img_from_dram<<25) + (rst_to_dram<<24) + 1;
 
 	// bsg_pr_test_info("========DRLP FC FP========\n");
-	uint32_t config[DRLP_CFG_LEN] = {config0, fc.act_base_addr, fc.wgt_base_addr, fc.rst_base_addr, 0, config5, config6};
+    // if (fc.layer == 3) {
+        // config0 = 0xA7C020AE;
+        // config5 = 0x10680028;
+        // config6 = 0x34004C03;
+    // }
+    // else {
+        // config0 = 0x84C0011C;
+        // config5 = 0x02B80028;
+        // config6 = 0x4400009B;
+    // }
+    uint32_t config[DRLP_CFG_LEN] = {config0, fc.act_base_addr, fc.wgt_base_addr, fc.rst_base_addr, 0, config5, config6};
+
+    bsg_pr_test_info("write fc %d config\n", layer);
 	write_configure(mc, config);
 	// Wait for stop
 	uint32_t done = 0;
@@ -1060,7 +1093,7 @@ void drlp_fc_dx(hb_mc_manycore_t *mc, NN_layer fc) {
 	}
 } 
 
-void nn_fp(hb_mc_manycore_t *mc, float *state, NN_layer *nn, int num_layer, float* results) {
+void nn_fp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *state, NN_layer *nn, int num_layer, float* results) {
     bsg_pr_test_info("========Write state to DRAM on device========\n");
 	float number;
 	uint32_t addr=STATE_ADDR;
@@ -1069,8 +1102,8 @@ void nn_fp(hb_mc_manycore_t *mc, float *state, NN_layer *nn, int num_layer, floa
 	        for (int y = 0; y < 84; y++) { 
 	            for (int i = 0; i < 4; i++) { 
 		            number = state[x*4+i + y*84 + z*84*84];
+		            write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
 		            addr++; 
-		            write_dram_float(mc, addr, number);
                 }
             }
         }
@@ -1090,10 +1123,10 @@ void nn_fp(hb_mc_manycore_t *mc, float *state, NN_layer *nn, int num_layer, floa
 	}
 
 	// bsg_pr_test_info("========Read FP results========\n");
-	read_dram(mc, FP_RST_ADDR+1, ACTION_SIZE, results, false);
+	read_drlp_dram(mc, drlp_dram_npa, FP_RST_ADDR+1, ACTION_SIZE, results, false);
 }
 
-void nn_bp(hb_mc_manycore_t *mc, float *dy, NN_layer *nn, int num_layer) {
+void nn_bp(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, float *dy, NN_layer *nn, int num_layer) {
     bsg_pr_test_info("========Write state to DRAM on device========\n");
 	int end=18;
 	if (ACTION_SIZE>18)
@@ -1106,7 +1139,7 @@ void nn_bp(hb_mc_manycore_t *mc, float *dy, NN_layer *nn, int num_layer) {
 		else
 			number = 0.0;
 		addr = OUT_GD_ADDR+ i; 
-		write_dram_float(mc, addr, number);
+		write_drlp_dram_float(mc, drlp_dram_npa, addr, number);
 	}
 
     bsg_pr_test_info("========Call DRLP NN BP========\n");
@@ -1141,7 +1174,7 @@ void nn_bp(hb_mc_manycore_t *mc, float *dy, NN_layer *nn, int num_layer) {
 * High-level DQN API
 ******************************************************************************************************************/
 
-void dqn_act(hb_mc_manycore_t *mc, Transition *trans, NN_layer *nn, int num_layer, float epsilon) {
+void dqn_act(hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa,  Transition *trans, NN_layer *nn, int num_layer, float epsilon) {
 	float number;
 	int addr;
 	float prob = rand()/(float)(RAND_MAX);
@@ -1150,50 +1183,58 @@ void dqn_act(hb_mc_manycore_t *mc, Transition *trans, NN_layer *nn, int num_laye
 	}
 	else {
 		float results[ACTION_SIZE];
-		nn_fp(mc, trans->state, nn, num_layer, results);
+		nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, results);
 		int max_index = 0;
-		for (int i = 1; i < ACTION_SIZE; i++) { 
+		for (int i = 0; i < ACTION_SIZE; i++) { 
 			if (results[i] > results[max_index])
 				max_index = i;
+            bsg_pr_test_info("DRLP ACT: results[%d]=%f\n", i, results[i]);
 		}
 		trans->action = max_index;
 	}
 }
 
-void dqn_train(hb_mc_manycore_t *mc, Transition *trans, NN_layer *nn, int num_layer, float gamma) {
+void dqn_train(hb_mc_manycore_t *mc,  hb_mc_npa_t drlp_dram_npa, Transition *trans, NN_layer *nn, int num_layer, float* fc2_dy, float gamma) {
 	// FP
 	// next state
 	float next_values[ACTION_SIZE];
 	int next_max_index = 0;
-	nn_fp(mc, trans->next_state, nn, num_layer, next_values);
+	nn_fp(mc, drlp_dram_npa, trans->next_state, nn, num_layer, next_values);
 
 	for (int i = 0; i < ACTION_SIZE; i++) { 
 		if (next_values[i] > next_values[next_max_index])
 			next_max_index = i;
         bsg_pr_test_info("DRLP Train: next_value[%d]=%f\n", i, next_values[i]);
 	}
-	// state
+	// // state
 	float state_values[ACTION_SIZE];
-	nn_fp(mc, trans->state, nn, num_layer, state_values);
+	nn_fp(mc, drlp_dram_npa, trans->state, nn, num_layer, state_values);
     for (int i = 0; i < ACTION_SIZE; i++) { 
         bsg_pr_test_info("DRLP Train: state_value[%d]=%f\n", i, state_values[i]);
     }
 
 	// Loss function
-	float target = trans->reward + gamma*next_values[next_max_index];
-	float fc2_dy[ACTION_SIZE]={0.0};
-	fc2_dy[next_max_index] = next_values[next_max_index] - state_values[next_max_index]; // MSE loss function
+    float target;
+    uint32_t action = trans->action;
+    bsg_pr_test_info("DRLP Train: reward=%f\n", trans->reward);
+    bsg_pr_test_info("DRLP Train: done=%f\n", trans->done);
+    bsg_pr_test_info("DRLP Train: action=%d\n", action);
+    if ((trans->done) == 0.0)
+        target = (trans->reward) + gamma*next_values[next_max_index];
+    else
+        target = trans->reward;
+    bsg_pr_test_info("DRLP Train: target=%f\n", target);
+
+    for (int i = 0; i < ACTION_SIZE; i++) { 
+        fc2_dy[i] = 0;
+    }
+	fc2_dy[action] = state_values[action] - target; // MSE loss function
+    // bsg_pr_test_info("DRLP Train: reward=%f\n", trans->reward);
     for (int i = 0; i < ACTION_SIZE; i++) { 
         bsg_pr_test_info("DRLP Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);
     }
 
-	// BP
-	nn_bp(mc, fc2_dy, nn, num_layer);
-
-	// float drlp_fc2_dw[288];
-	// read_dram(mc, FC2_dW_ADDR+1, 4, drlp_fc2_dw);
-	// float drlp_fc1_dw[20];
-	// read_dram(mc, FC1_dW_ADDR+1, 20, drlp_fc2_dw);
-	
+    // BP
+    nn_bp(mc, drlp_dram_npa, fc2_dy, nn, num_layer);
 
 }

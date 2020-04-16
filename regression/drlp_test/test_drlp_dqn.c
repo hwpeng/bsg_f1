@@ -31,16 +31,6 @@
 
 int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t dw_device, eva_t w_new_device, float *w, float *dw, int w_num, float lr) {
 	int rc;
-    /* rc = hb_mc_device_program_init(&device, bin_path, ALLOC_NAME, 0); */
-    /* if (rc != HB_MC_SUCCESS) {  */
-            /* bsg_pr_err("failed to initialize program.\n"); */
-            /* return rc; */
-    /* } */
-    /* else { */
-        /* bsg_pr_test_info("Initialize program %s. \n", bin_path); */
-    /* } */
-
-    /* Copy W & dW from host onto device DRAM (eva) */
 	/* bsg_pr_test_info("========Copy from host to device DRAM (eva)========\n"); */
     void *dst = (void *) ((intptr_t) w_device);
     void *src = (void *) &w[0];
@@ -233,7 +223,10 @@ int test_drlp_dqn (int argc, char **argv) {
     drlp_dram_epa = hb_mc_npa_get_epa(&drlp_dram_npa);
     
     bsg_pr_test_info("DRLP DRAM memory: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, 0x%x)\n", hb_mc_eva_addr(&drlp_dram_eva), drlp_dram_x, drlp_dram_y, drlp_dram_epa);
-    write_dram_configure(mc, drlp_dram_npa);
+    /* write_dram_configure(mc, drlp_dram_npa); */
+    eva_t drlp_dram_eva_byte = drlp_dram_eva >> 2;
+	hb_mc_npa_t drlp_eva_config_npa = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_DRAM_CFG_X_ADDR };
+	hb_mc_manycore_write_mem(mc, &drlp_eva_config_npa, &drlp_dram_eva_byte, sizeof(drlp_dram_eva_byte));
 
     /* Allocate memory on the device for replay memory*/
     size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
@@ -264,9 +257,9 @@ int test_drlp_dqn (int argc, char **argv) {
 	param_random(FC2_W, FC2_W_SIZE);
 	// To the device DRAM
 	uint32_t base_addr = FC1_W_ADDR;
-	fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_npa, base_addr);
+	fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_eva, base_addr);
 	base_addr = FC2_W_ADDR;
-	fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_npa, base_addr);
+	fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_eva, base_addr);
 
     /*****************************************************************************************************************
     * DQN  
@@ -335,7 +328,7 @@ int test_drlp_dqn (int argc, char **argv) {
 
 	    	// Perform one step
 			/* bsg_pr_test_info("Perform one step\n"); */
-	    	dqn_act(mc, drlp_dram_npa, &trans, nn, num_layer, epsilon);
+	    	dqn_act(mc, drlp_dram_eva, &trans, nn, num_layer, epsilon);
 	    	call_step(&trans, pinst);
 
 	    	// Push to replay memory 
@@ -360,7 +353,7 @@ int test_drlp_dqn (int argc, char **argv) {
 		            bsg_pr_test_info("Episode: %d, epsilon: %f, mean score: %f\n", episode, epsilon, step_mean/20.0);
                     step_mean = 0.0;
                     float qv[2];
-	                nn_fp(mc, drlp_dram_npa, trans.state, nn, num_layer, qv);
+	                nn_fp(mc, drlp_dram_eva, trans.state, nn, num_layer, qv);
 		            bsg_pr_test_info("Q[0]: %f\tQ[1]: %f \n", qv[0], qv[1]);
                 }
 	    	}
@@ -369,7 +362,7 @@ int test_drlp_dqn (int argc, char **argv) {
 	    	if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
 	    		// Weight transpose and write
 				/* bsg_pr_test_info("Weight transpose and write\n"); */
-	    		wgt_transpose_and_write(mc, drlp_dram_npa,  FC2, FC2_W, FC2_WT);
+	    		wgt_transpose_and_write(mc, drlp_dram_eva, FC2, FC2_W, FC2_WT);
 
 	    		// Sample from replay memory
 				/* bsg_pr_test_info("Sample from replay memory\n"); */
@@ -377,10 +370,23 @@ int test_drlp_dqn (int argc, char **argv) {
 
 	    		// Train
 				/* bsg_pr_test_info("Perform training\n"); */
-	    		dqn_train(mc, drlp_dram_npa, &sample_trans, nn, num_layer, FC2_dB, 0.95);
+	    		dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
 	    		read_dw(mc, drlp_dram_npa, FC2_dW, FC2);
 	    		read_dw(mc, drlp_dram_npa, FC1_dW, FC1);
 	    		read_db(mc, FC1_dB, FC1);
+
+                /* TEST */
+                bsg_pr_test_info("Read fc2_dw from eva\n");
+                size_t nwords = 100;
+                uint32_t read_data;
+                eva_t curr_eva = drlp_dram_eva + (FC2.dw_base_addr+1)*4;
+                for (int i = 0; i < nwords; ++i) {
+                    test_eva_read(mc, &target, &curr_eva, &read_data, sizeof(uint32_t));
+                    curr_eva += 4;
+                    bsg_pr_test_info("Read back data written: 0x%08" PRIx32 "\n", read_data);
+                }
+
+                return HB_MC_SUCCESS;
 	    		if (HOST_COMPARE) {
 	    			rc = host_train(sample_trans.state, sample_trans.next_state, sample_trans.reward, sample_trans.done, sample_trans.action, FC1_W, FC1_B, FC2_W, FC2_B, FC2_WT, FC2_dW, FC1_dW, STATE_SIZE, FC1_Y_SIZE, ACTION_SIZE); 
 	    			if (rc==1)
@@ -421,9 +427,9 @@ int test_drlp_dqn (int argc, char **argv) {
                 printf("No error.\n");
 	    		// Write new weight to DRAM
 	    		base_addr = FC1_W_ADDR;
-                fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_npa, base_addr);
+                fc_fp_wrt_wgt(mc, FC1, FC1_W, FC1_B, drlp_dram_eva, base_addr);
 	    		base_addr = FC2_W_ADDR;
-                fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_npa, base_addr);
+                fc_fp_wrt_wgt(mc, FC2, FC2_W, FC2_B, drlp_dram_eva, base_addr);
 
                 if (epsilon*EPSILON_DECAY > MIN_EPSILON)
                     epsilon *= EPSILON_DECAY;
