@@ -102,7 +102,7 @@ void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[]) {
     char *get_w[] = {f0, f2, f4, f6, f8};
     char *get_b[] = {f1, f3, f5, f7, f9};
     for (int i=0; i<5; i++) {
-        bsg_pr_test_info("read %s\n", get_w[i]);
+        // bsg_pr_test_info("read %s\n", get_w[i]);
         PyObject *pgetw = PyObject_GetAttrString(pinst, get_w[i]);
         PyObject *pgetb = PyObject_GetAttrString(pinst, get_b[i]);
         PyObject *pargs  = Py_BuildValue("()");
@@ -122,7 +122,7 @@ void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[]) {
                 int cha_step = pwgt->strides[1];
                 int row_step = pwgt->strides[2];
                 int col_step = pwgt->strides[3];
-                bsg_pr_test_info("chas:%d, cha_step:%d, rows:%d, row_step:%d, cols:%d, col_step:%d\n", chas, cha_step, rows, row_step, cols, col_step);
+                // bsg_pr_test_info("chas:%d, cha_step:%d, rows:%d, row_step:%d, cols:%d, col_step:%d\n", chas, cha_step, rows, row_step, cols, col_step);
                 for (int n=0; n<nums; n++) {
                     for (int d=0; d<chas; d++) {
                         for (int r=0; r<rows; r++) {
@@ -140,7 +140,7 @@ void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[]) {
                 int cols = pwgt->dimensions[1];
                 int row_step = pwgt->strides[0];
                 int col_step = pwgt->strides[1];
-                bsg_pr_test_info("rows:%d, row_step:%d, cols:%d, col_step:%d\n", rows, row_step, cols, col_step);
+                // bsg_pr_test_info("rows:%d, row_step:%d, cols:%d, col_step:%d\n", rows, row_step, cols, col_step);
                 for (int r=0; r<rows; r++) {
                     for (int c=0; c<cols; c++) {
                         nn_w[i][r+c*rows] = *(float*)(pwgt->data + r*row_step + c*col_step);
@@ -164,14 +164,12 @@ void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[]) {
 }
 
 void torch_forward(Transition *trans, PyObject *pinst, float *result) { 
-    PyObject *pforward = PyObject_GetAttrString(pinst, "forward");
+    PyObject *pforward = PyObject_GetAttrString(pinst, "c_call_forward");
     npy_intp dims[1] = {84*84*4};
     PyObject *parray = PyArray_SimpleNewFromData(1, dims, NPY_FLOAT, trans->state);
     PyObject *argarray = PyTuple_New(1);
     PyTuple_SetItem(argarray, 0, parray);
     PyArrayObject *poutput = PyObject_CallObject(pforward, argarray);
-    Py_DECREF(argarray);
-    Py_DECREF(pforward);
     if (PyArray_Check(poutput)) {
         int nums = poutput->dimensions[0];
         int num_step = poutput->strides[0];
@@ -180,8 +178,10 @@ void torch_forward(Transition *trans, PyObject *pinst, float *result) {
         }
     }
     else {
-        printf("Returned state is not Numpy array!\n");
+        bsg_pr_err("torch forward returned is not Numpy array!\n");
     }
+    Py_DECREF(argarray);
+    Py_DECREF(pforward);
 }
 
 
@@ -1056,7 +1056,6 @@ void drlp_fc_fp(hb_mc_manycore_t *mc, NN_layer fc) {
     // }
     uint32_t config[DRLP_CFG_LEN] = {config0, fc.act_base_addr, fc.wgt_base_addr, fc.rst_base_addr, 0, config5, config6};
 
-    bsg_pr_test_info("write fc %d config\n", layer);
     write_configure(mc, config);
     // Wait for stop
     uint32_t done = 0;
@@ -1247,19 +1246,21 @@ void dqn_act(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, Transition *trans,
         float results[ACTION_SIZE], torch_results[ACTION_SIZE];
         nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, results);
 
-        if (compare)
-            torch_forward(trans, pinst, torch_results); 
 
         int max_index = 0;
         for (int i = 0; i < ACTION_SIZE; i++) { 
             if (results[i] > results[max_index])
                 max_index = i;
-            if (compare) {
-                bsg_pr_test_info("Torch ACT: results[%d]=%f\n", i, torch_results[i]);
-                bsg_pr_test_info("DRLP  ACT: results[%d]=%f\n", i, results[i]);
-            }
         }
         trans->action = max_index;
+
+        if (compare) {
+            torch_forward(trans, pinst, torch_results); 
+            bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", 
+                    torch_results[0], torch_results[1], torch_results[2],  torch_results[3]);
+            bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",
+                    results[0], results[1], results[2],  results[3]);
+        }
     }
 }
 

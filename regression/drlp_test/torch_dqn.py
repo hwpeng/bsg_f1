@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 class torch_dqn(nn.Module):
     def __init__(self, name):
         super(torch_dqn, self).__init__()
+        torch.set_default_dtype(torch.float32)
         torch.manual_seed(2020)
         self.conv1 = nn.Conv2d(4, 32, 8, stride=4, padding=0)
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2, padding=0)
@@ -20,6 +22,16 @@ class torch_dqn(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+    def c_call_forward(self, x):
+        z = np.zeros((1, 4, 84, 84))
+        for d in range(4):
+            for r in range(84):
+                for c in range(84):
+                    z[0, d, r, c] = x[d*84*84+r*84+c]
+        x = torch.from_numpy(z).type('torch.FloatTensor')
+        x = self.forward(x)
+        return x.data.numpy()
 
     def get_conv1_w(self):
         return self.conv1.weight.data.numpy()
@@ -42,4 +54,9 @@ class torch_dqn(nn.Module):
     def get_fc2_b(self):
         return self.fc2.bias.data.numpy()
 
+#  dqn = torch_dqn('ad')
+#  x = torch.rand(1, 4, 84, 84)
+#  x = np.random.rand(84*84*4)
+#  print(x)
+#  print(dqn.c_call_forward(x))
 

@@ -79,6 +79,6 @@
 // Others
 #define ONCHIP 0
 #define DMA 1
-#define HOST_COMPARE false
+#define HOST_COMPARE true
 
 
