@@ -258,7 +258,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
     size_t drlp_dram_size = sizeof(uint32_t)*DRLP_DRAM_SIZE;
     hb_mc_eva_t drlp_dram_eva;
     hb_mc_device_malloc(&device, drlp_dram_size, &drlp_dram_eva); 
-    write_dram_configure(mc, drlp_dram_eva);
+    write_dram_configure(mc, drlp_dram_eva>>2);
+    bsg_pr_test_info("DRLP dram eva: %x\n", drlp_dram_eva);
 
     /* Allocate memory on the device for replay memory*/
     size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
@@ -282,7 +283,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
     float *nn_w[] = {CONV1_W, CONV2_W, CONV3_W, FC1_W, FC2_W};
     float *nn_b[] = {CONV1_B, CONV2_B, CONV3_B, FC1_B, FC2_B};
     bsg_pr_test_info("Initialize weights randomly and write to DRAM\n");
-    get_parameters(py_dqn, nn_w, nn_b);
+    get_parameters(py_dqn, nn_w, nn_b, false);
     /* srand(0.1);  */
     /* param_random(CONV1_W, CONV1_W_SIZE); */
     /* param_random(CONV2_W, CONV2_W_SIZE); */
@@ -358,14 +359,20 @@ int test_drlp_dqn_all (int argc, char **argv) {
             step++;
             bsg_pr_test_info("Step%d-------------------------------------\n", step);
             // Perform one step
-            /* bsg_pr_test_info("Perform one step\n"); */
-            dqn_act(mc, drlp_dram_eva, &trans, nn, num_layer, epsilon, py_dqn, HOST_COMPARE);
+            float drlp_fp_r[ACTION_SIZE];
+            dqn_act(mc, drlp_dram_eva, &trans, nn, num_layer, epsilon, drlp_fp_r);
+            if (HOST_COMPARE) {
+                float torch_fp_r[ACTION_SIZE];
+                torch_forward(&trans, py_dqn, torch_fp_r); 
+                bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", 
+                        torch_fp_r[0], torch_fp_r[1], torch_fp_r[2],  torch_fp_r[3]);
+                bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",
+                        drlp_fp_r[0], drlp_fp_r[1], drlp_fp_r[2],  drlp_fp_r[3]);
+            }
 
             call_step(&trans, py_game);
-            return HB_MC_SUCCESS;
 
             // Push to replay memory 
-            /* bsg_pr_test_info("Push to replay memory\n"); */
             position = re_mem_push(mc, re_mem_npa, &trans, position);
             if (position == 0)
                 re_mem_full = true;
@@ -393,6 +400,10 @@ int test_drlp_dqn_all (int argc, char **argv) {
 
             // Training 
             if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
+                // Sample from replay memory
+                bsg_pr_test_info("Sample from replay memory\n");
+                re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
+
                 // Weight transpose and write
                 bsg_pr_test_info("Weight transpose and write\n");
                 fc_bp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W);
@@ -401,24 +412,29 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV2, CONV2_W);
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV1, sample_trans.state);
 
-                // Sample from replay memory
-                bsg_pr_test_info("Sample from replay memory\n");
-                re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
-
                 // Train
                 bsg_pr_test_info("DQN train\n");
                 dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
-                read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
-                /* read_fc_dw(mc, drlp_dram_npa, FC1_dW, FC1); */
-                /* read_fc_db(mc, FC1_dB, FC1); */
-                return HB_MC_SUCCESS;
-                // if (HOST_COMPARE) {
-                //     rc = host_train(sample_trans.state, sample_trans.next_state, sample_trans.reward, sample_trans.done, FC1_W, FC1_B, FC2_W, FC2_B, FC2_WT, FC2_dW, FC1_dW, STATE_SIZE, FC1_Y_SIZE, ACTION_SIZE); 
-                //     if (rc==1)
-                //         bsg_pr_err("Step%d, BP has error!\n", step);
+                if (HOST_COMPARE) {
+                    read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
+                }
+                if (HOST_COMPARE) {
+                    float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
+                    float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
+                    float HOST_CONV3_dW[CONV3_W_SIZE], HOST_CONV3_dB[CONV3_B_SIZE];
+                    float HOST_CONV2_dW[CONV2_W_SIZE], HOST_CONV2_dB[CONV2_B_SIZE];
+                    float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
+                    float *host_nn_dw[] = {HOST_CONV1_dW, HOST_CONV2_dW, HOST_CONV3_dW, HOST_FC1_dW, HOST_FC2_dW};
+                    float *host_nn_db[] = {HOST_CONV1_dB, HOST_CONV2_dB, HOST_CONV3_dB, HOST_FC1_dB, HOST_FC2_dB};
+                    torch_train(&sample_trans, py_dqn, host_nn_dw, host_nn_db);
+
+                    rc = host_compare(HOST_CONV1_dW, CONV1_W, CONV1_W_SIZE);
+                    if (rc==1)
+                        bsg_pr_err("Step%d, BP has error!\n", step);
                 //     host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
                 //     host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
-                // }
+                }
+                return HB_MC_SUCCESS;
 
                 // Optimizer
                 for (int i = 0; i < num_layer; i++) {
@@ -450,6 +466,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
     
     /* Freeze the tiles and memory manager cleanup. */
     Py_DECREF(py_game);    
+    Py_DECREF(py_dqn);    
     Py_Finalize(); 
     printf("=========================\n");
     rc = hb_mc_device_finish(&device); 

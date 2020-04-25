@@ -2,8 +2,8 @@ typedef struct {
 	float state[STATE_SIZE];
 	float next_state[STATE_SIZE];
 	float reward;
-	uint32_t done;
 	uint32_t action;
+	uint32_t done;
 } Transition;
 
 typedef struct {

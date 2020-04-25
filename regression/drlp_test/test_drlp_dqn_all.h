@@ -87,20 +87,34 @@ PyObject* py_init(char *game_name) {
 }
 
 // for torch dqn
-void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[]) { 
+void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[], bool read_grad) { 
     printf("Copy nn parameters from torch\n");
-    char f0[] = "get_conv1_w";
-    char f1[] = "get_conv1_b";
-    char f2[] = "get_conv2_w";
-    char f3[] = "get_conv2_b";
-    char f4[] = "get_conv3_w";
-    char f5[] = "get_conv3_b";
-    char f6[] = "get_fc1_w";
-    char f7[] = "get_fc1_b";
-    char f8[] = "get_fc2_w";
-    char f9[] = "get_fc2_b";
-    char *get_w[] = {f0, f2, f4, f6, f8};
-    char *get_b[] = {f1, f3, f5, f7, f9};
+    char *get_w[5];
+    char *get_b[5];
+    if (!read_grad) {
+        get_w[0] = "get_conv1_w";
+        get_b[0] = "get_conv1_b";
+        get_w[1] = "get_conv2_w";
+        get_b[1] = "get_conv2_b";
+        get_w[2] = "get_conv3_w";
+        get_b[2] = "get_conv3_b";
+        get_w[3] = "get_fc1_w";
+        get_b[3] = "get_fc1_b";
+        get_w[4] = "get_fc2_w";
+        get_b[4] = "get_fc2_b";
+    }
+    else {
+        get_w[0]= "get_conv1_dw";
+        get_b[0]= "get_conv1_db";
+        get_w[1]= "get_conv2_dw";
+        get_b[1]= "get_conv2_db";
+        get_w[2]= "get_conv3_dw";
+        get_b[2]= "get_conv3_db";
+        get_w[3]= "get_fc1_dw";
+        get_b[3]= "get_fc1_db";
+        get_w[4]= "get_fc2_dw";
+        get_b[4]= "get_fc2_db";
+    }
     for (int i=0; i<5; i++) {
         // bsg_pr_test_info("read %s\n", get_w[i]);
         PyObject *pgetw = PyObject_GetAttrString(pinst, get_w[i]);
@@ -184,6 +198,26 @@ void torch_forward(Transition *trans, PyObject *pinst, float *result) {
     Py_DECREF(pforward);
 }
 
+void torch_train(Transition *trans, PyObject *pinst, float *nn_dw[], float *nn_db[]) { 
+    // c_call_train has 5 args: state, next state, reward, action, done
+    PyObject *ptrain = PyObject_GetAttrString(pinst, "c_call_train");
+    PyObject *args = PyTuple_New(5); 
+
+    npy_intp dims[1] = {84*84*4};
+    PyObject *arg_state = PyArray_SimpleNewFromData(1, dims, NPY_FLOAT, trans->state);
+    PyTuple_SetItem(args, 0, arg_state);
+    PyObject *arg_next_state = PyArray_SimpleNewFromData(1, dims, NPY_FLOAT, trans->next_state);
+    PyTuple_SetItem(args, 1, arg_next_state);
+    PyTuple_SetItem(args, 2, Py_BuildValue("f",trans->reward));
+    PyTuple_SetItem(args, 3, Py_BuildValue("i",trans->action));
+    PyTuple_SetItem(args, 4, Py_BuildValue("i",trans->done));
+    
+    PyObject_CallObject(ptrain, args);
+    Py_DECREF(args);
+    Py_DECREF(ptrain);
+
+    get_parameters(pinst, nn_dw, nn_db, true);
+}
 
 
 // for game environment
@@ -563,6 +597,7 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer 
                             index = x + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
                             eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
+                            bsg_pr_test_info("conv1 weight %f to addr %d\n", number, addr);
                             addr++;
                         }
                     }
@@ -1235,32 +1270,19 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dy, NN_layer 
 * High-level DQN API
 ******************************************************************************************************************/
 
-void dqn_act(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, Transition *trans, NN_layer *nn, int num_layer, float epsilon, PyObject *pinst, bool compare) {
-    float number;
-    int addr;
+void dqn_act(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, Transition *trans, NN_layer *nn, int num_layer, float epsilon, float *results) {
     float prob = rand()/(float)(RAND_MAX);
     if (prob<epsilon) {
         trans->action = rand()%ACTION_SIZE;
     }
     else {
-        float results[ACTION_SIZE], torch_results[ACTION_SIZE];
         nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, results);
-
-
         int max_index = 0;
         for (int i = 0; i < ACTION_SIZE; i++) { 
             if (results[i] > results[max_index])
                 max_index = i;
         }
         trans->action = max_index;
-
-        if (compare) {
-            torch_forward(trans, pinst, torch_results); 
-            bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", 
-                    torch_results[0], torch_results[1], torch_results[2],  torch_results[3]);
-            bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",
-                    results[0], results[1], results[2],  results[3]);
-        }
     }
 }
 
@@ -1276,7 +1298,7 @@ void dqn_train(hb_mc_manycore_t *mc,  hb_mc_eva_t drlp_dram_eva, Transition *tra
             next_max_index = i;
         bsg_pr_test_info("DRLP Train: next_value[%d]=%f\n", i, next_values[i]);
     }
-    // // state
+    // state
     float state_values[ACTION_SIZE];
     nn_fp(mc, drlp_dram_eva, trans->state, nn, num_layer, state_values);
     for (int i = 0; i < ACTION_SIZE; i++) { 
