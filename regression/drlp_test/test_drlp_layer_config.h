@@ -42,7 +42,7 @@ int fc2_dw (hb_mc_manycore_t *mc) {
 		for (int i=0; i<999; i++){}
 		hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 	}
-	bsg_pr_test_info("FC2_dw DONE\n");
+	// bsg_pr_test_info("FC2_dw DONE\n");
 	return err;
 }
 
@@ -57,7 +57,7 @@ int fc2_dx (hb_mc_manycore_t *mc) {
 		for (int i=0; i<999; i++){}
 		hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 	}
-	bsg_pr_test_info("FC2_dx DONE\n");
+	// bsg_pr_test_info("FC2_dx DONE\n");
 	return err;
 }
 
@@ -72,7 +72,7 @@ int fc1_dw (hb_mc_manycore_t *mc) {
 		for (int i=0; i<999; i++){}
 		hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 	}
-	bsg_pr_test_info("FC1_dw DONE\n");
+	// bsg_pr_test_info("FC1_dw DONE\n");
 	return err;
 }
 
@@ -88,7 +88,7 @@ int fc1_dx (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("FC1_dx %d/7 DONE\n",k+1);
+		// bsg_pr_test_info("FC1_dx %d/7 DONE\n",k+1);
 		done = 0;
 		if (k == 0) {
 			config[2] = config[2] + 267804; //267805 or 267804?
@@ -114,7 +114,7 @@ int conv3_dw (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("CONV3_dw %d/4 DONE\n", k+1);
+		// bsg_pr_test_info("CONV3_dw %d/4 DONE\n", k+1);
 		done = 0;
 		config[2] = config[2] + 896; //was 16
 		config[3] = config[3] + 9216;
@@ -135,7 +135,7 @@ int conv3_dx (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("CONV3_dX %d/4 DONE\n", k+1);
+		// bsg_pr_test_info("CONV3_dX %d/4 DONE\n", k+1);
 		done = 0;
 		config[2] = config[2] + 9232;
 		config[3] = config[3] + 1296;
@@ -157,7 +157,7 @@ int conv2_dw (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("CONV2_dW %d/4 DONE\n", k+1);
+		// bsg_pr_test_info("CONV2_dW %d/4 DONE\n", k+1);
 		done = 0;
 		config[2] = config[2] + 16*81;
 		config[3] = config[3] + 8192;
@@ -178,7 +178,7 @@ int conv2_dx (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("CONV2_dX %d/8 DONE\n", k+1);
+		// bsg_pr_test_info("CONV2_dX %d/8 DONE\n", k+1);
 		done = 0;
 		if (k==0 || k==2 || k==4 || k==6) {
 			config[3] = config[3] + 6400;
@@ -210,7 +210,7 @@ int conv1_dw (hb_mc_manycore_t *mc) {
 			for (int i=0; i<999; i++){}
 			hb_mc_manycore_read_mem(mc, &done_npa, &done, sizeof(done));
 		}
-		bsg_pr_test_info("CONV1_dW %d/8 DONE\n", k+1);
+		// bsg_pr_test_info("CONV1_dW %d/8 DONE\n", k+1);
 		done = 0;
 		if (k==1 || k==3 || k==5) {
 			config[1] = config[1] + 26496;

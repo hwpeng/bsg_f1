@@ -29,57 +29,12 @@
 #define TEST_NAME "test_drlp_dqn_all"
 #define ALLOC_NAME "default_allocator"
 
-int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t dw_device, eva_t w_new_device, float *w, float *dw, int w_num, float lr) {
+int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, float lr) {
     int rc;
-    /* bsg_pr_test_info("========Copy from host to device DRAM (eva)========\n"); */
-    void *dst = (void *) ((intptr_t) w_device);
-    void *src = (void *) &w[0];
-    rc = hb_mc_device_memcpy (&device, dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_DEVICE); 
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to copy memory to device.\n");
-            return rc;
-    }
-    /* bsg_pr_test_info("w[0]=%.16f \n", w[0]); */
-
-    hb_mc_manycore_t *mc = device.mc;
-    hb_mc_coordinate_t tt = { .x = 1, .y = 1 };
-    size_t w1_size = sizeof(uint32_t)*FC1_W_SIZE;
-    hb_mc_npa_t w1_npa, w1_new_npa;
-    hb_mc_idx_t w1_x, w1_y, w1_new_x, w1_new_y;
-    hb_mc_epa_t w1_epa, w1_new_epa;
-
-    hb_mc_eva_to_npa(mc, &default_map, &tt, &w_device, &w1_npa, &w1_size);
-    w1_x = hb_mc_npa_get_x(&w1_npa);
-    w1_y = hb_mc_npa_get_y(&w1_npa);
-    w1_epa = hb_mc_npa_get_epa(&w1_npa);
-    /* bsg_pr_test_info("w1 opt: EVA 0x%x mapped to NPA (x: %d, y: %d, EPA, %d)\n", hb_mc_eva_addr(&w_device), w1_x, w1_y, w1_epa); */
-
-    hb_mc_npa_t npa = { .x = w1_x, .y = w1_y, .epa = w1_epa };
-    uint32_t read_data;
-    float read_float;
-    hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
-    read_float = flt(read_data);
-    /* bsg_pr_test_info("Read result %1.4f(%x) \n", read_float, read_data); */
-
-    dst = (void *) ((intptr_t) dw_device);
-    src = (void *) &dw[0];
-    rc = hb_mc_device_memcpy (&device, dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_DEVICE); 
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to copy memory to device.\n");
-            return rc;
-    }
-    /* bsg_pr_test_info("dw[0]=%.16f \n", dw[0]); */
-
-    /* Initialize values in w_new_device to 0. */
-    rc = hb_mc_device_memset(&device, &w_new_device, 0, w_num * sizeof(uint32_t));
-    if (rc != HB_MC_SUCCESS) { 
-            bsg_pr_err("failed to set memory on device.\n");
-            return rc;
-    } 
-    hb_mc_manycore_read_mem(mc, &npa, &read_data, sizeof(read_data));
-    read_float = flt(read_data);
-    /* bsg_pr_test_info("Read result %1.4f(%x) \n", read_float, read_data); */
-
+    eva_t w_eva = base_eva + (nn.wgt_base_addr<<2);
+    eva_t dw_eva = base_eva + (nn.dw_base_addr<<2);
+    int w_num = nn.weight_size;
+    
     /* Define block_size_x/y: amount of work for each tile group */
     /* Define tg_dim_x/y: number of tiles in each tile group */
     /* Calculate grid_dim_x/y: number of tile groups needed based on block_size_x/y */
@@ -88,10 +43,10 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
     hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
 
     /* Prepare list of input arguments for kernel. */
-    int cuda_argv[6] = {w_device, dw_device, w_new_device, lr, w_num, block_size_x};
+    int cuda_argv[6] = {w_eva, dw_eva, w_eva, lr, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
-    /* bsg_pr_test_info("========Enqueue cuda kernel========\n"); */
+    bsg_pr_test_info("========Enqueue cuda kernel========\n");
     rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 6, cuda_argv);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize grid.\n");
@@ -99,22 +54,13 @@ int cuda_optimizer (hb_mc_device_t device, char *bin_path, eva_t w_device, eva_t
     }
 
     /* Launch and execute all tile groups on device and wait for all to finish.  */
-    /* bsg_pr_test_info("========Excute cuda kernel========\n"); */
+    bsg_pr_test_info("========Excute cuda kernel========\n");
     rc = hb_mc_device_tile_groups_execute(&device);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to execute tile groups.\n");
             return rc;
     }
 
-    /* Copy result matrix back from device DRAM into host memory. */
-    /* bsg_pr_test_info("========Copy from device DRAM to host========\n"); */
-    src = (void *) ((intptr_t) w_new_device);
-    dst = (void *) &w[0];
-    rc = hb_mc_device_memcpy (&device, (void *) dst, src, w_num * sizeof(uint32_t), HB_MC_MEMCPY_TO_HOST);
-    if (rc != HB_MC_SUCCESS) { 
-        bsg_pr_err("failed to copy memory from device.\n");
-        return rc;
-    }
 }
 
 
@@ -416,15 +362,12 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 bsg_pr_test_info("DQN train\n");
                 dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
                 if (HOST_COMPARE) {
+                    bsg_pr_test_info("Compare gradients with host torch\n");
                     read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
                     read_fc_dw(mc, drlp_dram_eva, FC1_dW, FC1);
                     read_conv_dw(mc, drlp_dram_eva, CONV3_dW, CONV3);
                     read_conv_dw(mc, drlp_dram_eva, CONV2_dW, CONV2);
                     read_conv_dw(mc, drlp_dram_eva, CONV1_dW, CONV1);
-
-                    /* float fc1_dx[3136]; */
-                    /* read_fc_db(mc, fc1_dx, FC1); */
-                    /* read_fc_db(mc, fc1_dx, CONV3); */
 
                     static float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
                     static float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
@@ -433,18 +376,17 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     static float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
                     float *host_nn_dw[] = {HOST_CONV1_dW, HOST_CONV2_dW, HOST_CONV3_dW, HOST_FC1_dW, HOST_FC2_dW};
                     float *host_nn_db[] = {HOST_CONV1_dB, HOST_CONV2_dB, HOST_CONV3_dB, HOST_FC1_dB, HOST_FC2_dB};
+
                     torch_train(&sample_trans, py_dqn, host_nn_dw, host_nn_db);
 
-                    rc = host_compare(HOST_FC2_dW, FC2_dW, FC2_W_SIZE);
-                    rc = host_compare(HOST_FC1_dW, FC1_dW, FC1_W_SIZE);
-                    rc = host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
-                    rc = host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
-                    rc = host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
-                    if (rc==1)
-                        bsg_pr_err("Step%d, BP has error!\n", step);
-                //     host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
-                //     host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
+                    host_compare(HOST_FC2_dW, FC2_dW, FC2_W_SIZE);
+                    host_compare(HOST_FC1_dW, FC1_dW, FC1_W_SIZE);
+                    host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
+                    host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
+                    host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
                 }
+
+                cuda_optimizer(device, FC2, drlp_dram_eva, LR);
                 Py_DECREF(py_game);    
                 Py_DECREF(py_dqn);    
                 Py_Finalize(); 
@@ -452,21 +394,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
 
                 // Optimizer
                 for (int i = 0; i < num_layer; i++) {
-                    cuda_optimizer(device, bin_path,w_opt_eva[i], dw_opt_eva[i], w_new_opt_eva[i], nn_w[i], nn_dw[i], nn[i].weight_size, LR);
-                    cuda_optimizer(device, bin_path,b_opt_eva[i], db_opt_eva[i], b_new_opt_eva[i], nn_b[i], nn_db[i], nn[i].bias_size, LR);
+                    cuda_optimizer(device,  nn[i], drlp_dram_eva, LR);
                 }
-
-                if (HOST_COMPARE) {
-                    rc = host_compare(host_fc2_w_new, FC2_W, FC2_W_SIZE);
-                    rc = host_compare(host_fc1_w_new, FC1_W, FC1_W_SIZE);
-                    if (rc==1)
-                        bsg_pr_err("Step%d, optimizer has error!\n", step);
-                }
-                // Write new weight to DRAM
-                base_addr = FC1_WGT_ADDR;
-                fc_fp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W, FC1_B, base_addr);
-                base_addr = FC2_WGT_ADDR;
-                fc_fp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W, FC2_B, base_addr);
 
                 if (epsilon*EPSILON_DECAY > MIN_EPSILON)
                     epsilon *= EPSILON_DECAY;
