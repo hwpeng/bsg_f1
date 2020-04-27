@@ -8,8 +8,7 @@ int host_compare (float *expect, float *get, int size) {
 	for (int i = 0; i < size; i++) { 
 		ferror = hb_mc_calculate_float_error (expect[i], get[i]); 
         max_ferror = fmax (max_ferror, ferror);        
-        // if (ferror > MAX_FLOAT_ERROR_TOLERANCE) {
-        if (ferror > 0.005) {
+        if (ferror > 0.005 && fabsf(expect[i]) > 0.00001) {
 			bsg_pr_err(BSG_RED("Mismatch: ") "[%d]: %.32f\tExpected: %.32f\tRelative error: %.32f\n",
             i, get[i], expect[i], ferror);
         mismatch = 1;

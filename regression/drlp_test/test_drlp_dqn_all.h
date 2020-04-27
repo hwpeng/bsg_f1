@@ -116,7 +116,6 @@ void get_parameters(PyObject *pinst, float *nn_w[], float *nn_b[], bool read_gra
         get_b[4]= "get_fc2_db";
     }
     for (int i=0; i<5; i++) {
-        // bsg_pr_test_info("read %s\n", get_w[i]);
         PyObject *pgetw = PyObject_GetAttrString(pinst, get_w[i]);
         PyObject *pgetb = PyObject_GetAttrString(pinst, get_b[i]);
         PyObject *pargs  = Py_BuildValue("()");
@@ -201,19 +200,31 @@ void torch_forward(Transition *trans, PyObject *pinst, float *result) {
 void torch_train(Transition *trans, PyObject *pinst, float *nn_dw[], float *nn_db[]) { 
     // c_call_train has 5 args: state, next state, reward, action, done
     PyObject *ptrain = PyObject_GetAttrString(pinst, "c_call_train");
-    PyObject *args = PyTuple_New(5); 
-
     npy_intp dims[1] = {84*84*4};
     PyObject *arg_state = PyArray_SimpleNewFromData(1, dims, NPY_FLOAT, trans->state);
-    PyTuple_SetItem(args, 0, arg_state);
+    PyObject *args_tuple = PyTuple_New(6);
+    PyTuple_SetItem(args_tuple, 0, arg_state);
     PyObject *arg_next_state = PyArray_SimpleNewFromData(1, dims, NPY_FLOAT, trans->next_state);
-    PyTuple_SetItem(args, 1, arg_next_state);
-    PyTuple_SetItem(args, 2, Py_BuildValue("f",trans->reward));
-    PyTuple_SetItem(args, 3, Py_BuildValue("i",trans->action));
-    PyTuple_SetItem(args, 4, Py_BuildValue("i",trans->done));
+    PyTuple_SetItem(args_tuple, 1, arg_next_state);
+    PyTuple_SetItem(args_tuple, 2, Py_BuildValue("f",trans->reward));
+    PyTuple_SetItem(args_tuple, 3, Py_BuildValue("i",trans->action));
+    PyTuple_SetItem(args_tuple, 4, Py_BuildValue("i",trans->done));
+    PyTuple_SetItem(args_tuple, 5, Py_BuildValue("f", 0.95));
     
-    PyObject_CallObject(ptrain, args);
-    Py_DECREF(args);
+    PyArrayObject *poutput = PyObject_CallObject(ptrain, args_tuple);
+    if (PyArray_Check(poutput)) {
+        int nums = poutput->dimensions[0];
+        int num_step = poutput->strides[0];
+        float result[4];
+        for (int n=0; n<nums; n++) {
+            result[n] = *(float*)(poutput->data + n*num_step);
+            // bsg_pr_test_info("%f\n",result[n]);
+        }
+    }
+    else {
+        bsg_pr_err("torch forward returned is not Numpy array!\n");
+    }
+    Py_DECREF(args_tuple);
     Py_DECREF(ptrain);
 
     get_parameters(pinst, nn_dw, nn_db, true);
@@ -235,12 +246,10 @@ void call_reset(Transition *trans, PyObject *pinst) {
         int cha_step = pstate->strides[0];
         int row_step = pstate->strides[1];
         int col_step = pstate->strides[2];
-        // bsg_pr_test_info("chas:%d, cha_step:%d, rows:%d, row_step:%d, cols:%d, col_step:%d\n", chas, cha_step, rows, row_step, cols, col_step);
         for (int d=0; d<chas; d++){
             for (int r=0; r<rows; r++){
                 for (int c=0; c<cols; c++){
                     trans->state[d*(rows*cols)+r*cols+c] = *(float*)(pstate->data + d*cha_step + r*row_step + c*col_step);
-                    // printf("state[%d,] is % f\n", r, trans->state[r]);
                 }
             }
         }
@@ -597,7 +606,6 @@ void conv_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer 
                             index = x + y*8 + z*8*8+ (pe+pe_offset)*8*8*4;
                             number = weight[index];
                             eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
-                            bsg_pr_test_info("conv1 weight %f to addr %d\n", number, addr);
                             addr++;
                         }
                     }
@@ -893,8 +901,8 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
     }
     else {
         for (int repeat=0; repeat<7; repeat++) {
-            // for (int slides=0; slides<29; slides++) {
-            for (int slides=0; slides<1; slides++) {
+            for (int slides=0; slides<29; slides++) {
+            // for (int slides=0; slides<1; slides++) {
                 for (int z=0; z<32; z++) {
                     if (slides==0) {
                         for (int j=0; j<16; j++) {
@@ -945,13 +953,20 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
 void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dW, NN_layer fc){
     int row = fc.input_size;
     int col = fc.output_size;
+    if (row == 512)
+        row = 540;
+    if (row == 3136)
+        row = 3168;
     uint32_t addr = fc.dw_base_addr+1;
     int index;
     for (int i = 0; i < col; i++) {
         for (int j = 0; j < row; j++) {
-            index = i*row+j;
-            eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
-            bsg_pr_test_info("Read dW[%d](%d) %.16f \n", index,  addr, dW[index]);
+            if (i < fc.output_size && j < fc.input_size) {
+                // index = i*row+j;
+                index = i+j*col;
+                eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
+                // bsg_pr_test_info("Read dW[%d](%d) %.16f \n", index,  addr, dW[index]);
+            }
             addr++;
         }
         if (row<18) 
@@ -968,9 +983,55 @@ void read_fc_db (hb_mc_manycore_t *mc, float *db, NN_layer fc) {
         hb_mc_npa_t npa2 = { .x = DRLP_X, .y = DRLP_Y, .epa = DRLP_RMEM_PREFIX + (dy_addr+i)*4 };
         hb_mc_manycore_read_mem(mc, &npa2, &read_data, sizeof(read_data));
         db[i] = flt(read_data);
-        if (i < 1000)
-            bsg_pr_test_info("Read db(%d) %f \n", i, db[i]);
+        // if (i < 1000)
+            bsg_pr_test_info("Read db(%d) %.4e from addr %d \n", i, db[i], dy_addr+i);
     }
+}
+
+void read_conv_dw (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dW, NN_layer nn){
+    int layer = nn.layer;
+    uint32_t addr = nn.dw_base_addr+1;
+    int size = nn.weight_size;
+    if (layer == 2) {
+        for (int i = 0; i < 64; i++) {
+            for (int j = 0; j < 64; j++) {
+                for (int k = 0; k < 3; k++) {
+                    for (int w = 0; w < 3; w++) {
+                        int index = i*64*9 + j*9 + k + w*3;
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
+                        addr++;
+                    }
+                }
+            }
+        }
+    }
+    else if (layer == 1) {
+        for (int i = 0; i < 64; i++) {
+            for (int j = 0; j < 32; j++) {
+                for (int k = 0; k < 4; k++) {
+                    for (int w = 0; w < 4; w++) {
+                        int index= i*32*16 + j*16 + k + w*4;
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
+                        addr++;
+                    }
+                }
+            }
+        }
+    }
+    else if (layer == 0) {
+        for (int j = 0; j < 4; j++) {
+            for (int i = 0; i < 32; i++) {
+                for (int k = 0; k < 8; k++) {
+                    for (int w = 0; w < 8; w++) {
+                        int index= i*4*64 + j*64 + k + w*8;
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &dW[index], false);
+                        addr++;
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 void drlp_conv_fp(hb_mc_manycore_t *mc, NN_layer fc) {
@@ -1255,7 +1316,7 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dy, NN_layer 
     bsg_pr_test_info("========4========\n");
 
     conv3_dw(mc);
-    bsg_pr_test_info("========55555====\n");
+    bsg_pr_test_info("========5========\n");
     conv3_dx(mc);
     bsg_pr_test_info("========6====\n");
     conv2_dw(mc);
@@ -1320,7 +1381,7 @@ void dqn_train(hb_mc_manycore_t *mc,  hb_mc_eva_t drlp_dram_eva, Transition *tra
     for (int i = 0; i < ACTION_SIZE; i++) { 
         fc2_dy[i] = 0;
     }
-    fc2_dy[action] = state_values[action] - target; // MSE loss function
+    fc2_dy[action] = 2*(state_values[action] - target); // MSE loss function
     // bsg_pr_test_info("DRLP Train: reward=%f\n", trans->reward);
     for (int i = 0; i < ACTION_SIZE; i++) { 
         bsg_pr_test_info("DRLP Train: fc2_dy[%d]=%f\n", i, fc2_dy[i]);

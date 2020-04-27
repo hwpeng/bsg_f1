@@ -334,11 +334,11 @@ int test_drlp_dqn_all (int argc, char **argv) {
     bool re_mem_full = false;
     bool compare_host = true;
     Transition sample_trans;
-    float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_B_SIZE];
-    float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_B_SIZE];
-    float CONV3_dW[CONV3_W_SIZE], CONV3_dB[CONV3_B_SIZE];
-    float CONV2_dW[CONV2_W_SIZE], CONV2_dB[CONV2_B_SIZE];
-    float CONV1_dW[CONV1_W_SIZE], CONV1_dB[CONV1_B_SIZE];
+    static float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_B_SIZE];
+    static float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_B_SIZE];
+    static float CONV3_dW[CONV3_W_SIZE], CONV3_dB[CONV3_B_SIZE];
+    static float CONV2_dW[CONV2_W_SIZE], CONV2_dB[CONV2_B_SIZE];
+    static float CONV1_dW[CONV1_W_SIZE], CONV1_dB[CONV1_B_SIZE];
     float *nn_dw[] = {CONV1_dW, CONV2_dW, CONV3_dW, FC1_dW, FC2_dW};
     float *nn_db[] = {CONV1_dB, CONV2_dB, CONV3_dB, FC1_dB, FC2_dB};
     float host_fc2_w_new[FC2_W_SIZE];
@@ -417,23 +417,37 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
                 if (HOST_COMPARE) {
                     read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
-                }
-                if (HOST_COMPARE) {
-                    float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
-                    float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
-                    float HOST_CONV3_dW[CONV3_W_SIZE], HOST_CONV3_dB[CONV3_B_SIZE];
-                    float HOST_CONV2_dW[CONV2_W_SIZE], HOST_CONV2_dB[CONV2_B_SIZE];
-                    float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
+                    read_fc_dw(mc, drlp_dram_eva, FC1_dW, FC1);
+                    read_conv_dw(mc, drlp_dram_eva, CONV3_dW, CONV3);
+                    read_conv_dw(mc, drlp_dram_eva, CONV2_dW, CONV2);
+                    read_conv_dw(mc, drlp_dram_eva, CONV1_dW, CONV1);
+
+                    /* float fc1_dx[3136]; */
+                    /* read_fc_db(mc, fc1_dx, FC1); */
+                    /* read_fc_db(mc, fc1_dx, CONV3); */
+
+                    static float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
+                    static float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
+                    static float HOST_CONV3_dW[CONV3_W_SIZE], HOST_CONV3_dB[CONV3_B_SIZE];
+                    static float HOST_CONV2_dW[CONV2_W_SIZE], HOST_CONV2_dB[CONV2_B_SIZE];
+                    static float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
                     float *host_nn_dw[] = {HOST_CONV1_dW, HOST_CONV2_dW, HOST_CONV3_dW, HOST_FC1_dW, HOST_FC2_dW};
                     float *host_nn_db[] = {HOST_CONV1_dB, HOST_CONV2_dB, HOST_CONV3_dB, HOST_FC1_dB, HOST_FC2_dB};
                     torch_train(&sample_trans, py_dqn, host_nn_dw, host_nn_db);
 
-                    rc = host_compare(HOST_CONV1_dW, CONV1_W, CONV1_W_SIZE);
+                    rc = host_compare(HOST_FC2_dW, FC2_dW, FC2_W_SIZE);
+                    rc = host_compare(HOST_FC1_dW, FC1_dW, FC1_W_SIZE);
+                    rc = host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
+                    rc = host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
+                    rc = host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
                     if (rc==1)
                         bsg_pr_err("Step%d, BP has error!\n", step);
                 //     host_optimizer(host_fc2_w_new, FC2_W, FC2_dW, LR, FC2_W_SIZE);
                 //     host_optimizer(host_fc1_w_new, FC1_W, FC1_dW, LR, FC1_W_SIZE);
                 }
+                Py_DECREF(py_game);    
+                Py_DECREF(py_dqn);    
+                Py_Finalize(); 
                 return HB_MC_SUCCESS;
 
                 // Optimizer

@@ -23,7 +23,7 @@ class gym_env:
         self.name = name
         self.obs_space = self.env.observation_space.shape[0]
         self.act_space = self.env.action_space.n
-        print('Making gym RL environment:', name)
+        #  print('Making gym RL environment:', name)
 
     def reset(self):
         state = self.env.reset()
