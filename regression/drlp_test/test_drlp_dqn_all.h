@@ -948,6 +948,54 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
 //     float zero_bias[1000] = {0.0};
 //     fc_fp_wrt_wgt(mc, drlp_dram_npa, fc, wT, zero_bias, fc.wT_base_addr);
 // }
+//
+void read_fc_w (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer fc, float *weight, float *bias) {
+    fc_fp_drlp_map(&fc);
+
+    float number;
+    uint32_t addr=fc.wgt_base_addr;
+    int index;
+    int input_padding=fc.input_padding;
+    int slides=fc.slides, pe_on=fc.pe_on;
+    int zmove=fc.zmove;
+    int weight_size=fc.weight_size;
+    for (int i=0; i<slides; i++) {
+        for (int z=0; z<zmove; z++) {
+            // Read bias
+            if (i==0) { 
+                for (int j = 0; j < (pe_on+1); j++) {
+                    index = z+j*zmove;
+                    if (index >= (fc.output_size))
+                        number = 0.0;
+                    else
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &bias[index], false);
+                    addr++;
+                }
+            }
+            else {
+                if (z==0) {
+                    addr++;
+                }
+            }
+            // Read weight
+            for (int j = 0; j < (pe_on+1); j++) {
+                for (int k = 0; k < 18; k++) {
+                    if (pe_on+1==16)
+                        index = (18*i+k)*(fc.output_size)+z+j*zmove;
+                    else
+                        index = (18*i+k)*(pe_on+1)+z+j*zmove;
+                    if (index >= weight_size)
+                        number = 0.0;
+                    else
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &weight[index], false);
+                    addr++;
+                }
+            }
+        }
+    }
+}
+
+
 
 void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dW, NN_layer fc){
     int row = fc.input_size;
