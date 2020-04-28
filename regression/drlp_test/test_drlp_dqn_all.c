@@ -32,6 +32,7 @@
 int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, float lr) {
     int rc;
     eva_t w_eva = base_eva + (nn.wgt_base_addr<<2);
+    eva_t wT_eva = base_eva + (nn.wT_base_addr<<2);
     eva_t dw_eva = base_eva + (nn.dw_base_addr<<2);
     int w_num = nn.weight_size;
     
@@ -43,7 +44,7 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
 
     /* Prepare list of input arguments for kernel. */
-    int cuda_argv[6] = {w_eva, dw_eva, w_eva, lr, w_num, block_size_x};
+    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, lr, block_size_x, nn.layer};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
     bsg_pr_test_info("========Enqueue cuda kernel========\n");

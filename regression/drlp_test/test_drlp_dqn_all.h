@@ -902,7 +902,6 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
     else {
         for (int repeat=0; repeat<7; repeat++) {
             for (int slides=0; slides<29; slides++) {
-            // for (int slides=0; slides<1; slides++) {
                 for (int z=0; z<32; z++) {
                     if (slides==0) {
                         for (int j=0; j<16; j++) {
