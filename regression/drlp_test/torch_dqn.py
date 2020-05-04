@@ -33,9 +33,11 @@ class torch_dqn(nn.Module):
 
     def forward(self, x):
         x1 = self.conv1(x)
+        x1.register_hook(save_grad(self, 'x1'))
         x1_relu = F.relu(x1)
 
         x2 = self.conv2(x1_relu)
+        x2.register_hook(save_grad(self, 'x2'))
         x2_relu = F.relu(x2)
 
         x3 = self.conv3(x2_relu)
