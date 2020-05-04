@@ -30,6 +30,7 @@ class torch_dqn(nn.Module):
         self.fc1 = nn.Linear(3136, 512)
         self.fc2 = nn.Linear(512, 4)
         self.grads = {}
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=0.001)
 
     def forward(self, x):
         x1 = self.conv1(x)
@@ -88,8 +89,9 @@ class torch_dqn(nn.Module):
 
         input = state_values[0, action]
         loss = F.mse_loss(input, target)
-        self.zero_grad()
+        self.optimizer.zero_grad()
         loss.backward()
+        self.optimizer.step()
         #  torch.set_printoptions(profile="full")
         #  print(self.grads['x3'])
         #  torch.set_printoptions(profile="default")
@@ -185,11 +187,10 @@ next_state = np.copy(px)
 # o = dqn.conv_forward(x).data.numpy()
 # w3 = dqn.conv3.weight.data.numpy()
 # w2 = dqn.conv2.weight.data.numpy()
-# w4 = dqn.fc1.weight.data.numpy()
+w2 = dqn.fc2.weight.data.numpy()
 
 a = dqn.c_call_train(np.random.rand(84*84*4), np.random.rand(84*84*4), reward, 3, done, 0.95)
 #  print(dqn.get_conv1_dw().shape)
-
 # print(o.shape)
 # for i in range(4):
 #     f = o[0, i]

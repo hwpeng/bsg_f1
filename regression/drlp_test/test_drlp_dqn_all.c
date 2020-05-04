@@ -33,7 +33,7 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     int rc;
     eva_t w_eva = base_eva + (nn.wgt_base_addr<<2);
     eva_t wT_eva = base_eva + (nn.wT_base_addr<<2);
-    eva_t dw_eva = base_eva + (nn.dw_base_addr<<2);
+    eva_t dw_eva = base_eva + ((nn.dw_base_addr+1)<<2);
     int w_num = nn.weight_size;
     
     /* Define block_size_x/y: amount of work for each tile group */
@@ -44,7 +44,7 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
 
     /* Prepare list of input arguments for kernel. */
-    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, lr, block_size_x, nn.layer};
+    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, nn.layer, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
     bsg_pr_test_info("========Enqueue cuda kernel========\n");
@@ -385,25 +385,41 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
                     host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
                     host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
+
                 }
 
+                // Optimizer
+                /* for (int i = 0; i < num_layer; i++) { */
+                    /* cuda_optimizer(device,  nn[i], drlp_dram_eva, LR); */
+                /* } */
                 cuda_optimizer(device, FC2, drlp_dram_eva, LR);
+                cuda_optimizer(device, FC1, drlp_dram_eva, LR);
+                if (HOST_COMPARE) {
+                    static float HOST_FC1_W[FC1_W_SIZE], HOST_FC1_B[FC1_B_SIZE];
+                    static float HOST_FC2_W[FC2_W_SIZE], HOST_FC2_B[FC2_B_SIZE];
+                    static float HOST_CONV3_W[CONV3_W_SIZE], HOST_CONV3_B[CONV3_B_SIZE];
+                    static float HOST_CONV2_W[CONV2_W_SIZE], HOST_CONV2_B[CONV2_B_SIZE];
+                    static float HOST_CONV1_W[CONV1_W_SIZE], HOST_CONV1_B[CONV1_B_SIZE];
+                    float *host_nn_w[] = {HOST_CONV1_W, HOST_CONV2_W, HOST_CONV3_W, HOST_FC1_W, HOST_FC2_W};
+                    float *host_nn_b[] = {HOST_CONV1_B, HOST_CONV2_B, HOST_CONV3_B, HOST_FC1_B, HOST_FC2_B};
+                    get_parameters(py_dqn, host_nn_w, host_nn_b, false);
+                    read_fc_w(mc, drlp_dram_eva, FC2, FC2_W, FC2_B);
+                    read_fc_w(mc, drlp_dram_eva, FC1, FC1_W, FC1_B);
+
+                    host_compare(HOST_FC2_W, FC2_W, FC2_W_SIZE);
+                    host_compare(HOST_FC1_W, FC1_W, FC1_W_SIZE);
+                }
+
                 Py_DECREF(py_game);    
                 Py_DECREF(py_dqn);    
                 Py_Finalize(); 
                 return HB_MC_SUCCESS;
-
-                // Optimizer
-                for (int i = 0; i < num_layer; i++) {
-                    cuda_optimizer(device,  nn[i], drlp_dram_eva, LR);
-                }
 
                 if (epsilon*EPSILON_DECAY > MIN_EPSILON)
                     epsilon *= EPSILON_DECAY;
                 else
                     epsilon = MIN_EPSILON;
 
-                return HB_MC_SUCCESS;
             }
         }
     }
