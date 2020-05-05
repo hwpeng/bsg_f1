@@ -34,6 +34,7 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     eva_t w_eva = base_eva + (nn.wgt_base_addr<<2);
     eva_t wT_eva = base_eva + (nn.wT_base_addr<<2);
     eva_t dw_eva = base_eva + ((nn.dw_base_addr+1)<<2);
+    eva_t db_eva = base_eva + ((nn.db_base_addr)<<2);
     int w_num = nn.weight_size;
     
     /* Define block_size_x/y: amount of work for each tile group */
@@ -44,18 +45,16 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
 
     /* Prepare list of input arguments for kernel. */
-    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, nn.layer, w_num, block_size_x};
+    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, db_eva, nn.layer, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
-    bsg_pr_test_info("========Enqueue cuda kernel========\n");
-    rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 6, cuda_argv);
+    rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 7, cuda_argv);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize grid.\n");
             return rc;
     }
 
     /* Launch and execute all tile groups on device and wait for all to finish.  */
-    bsg_pr_test_info("========Excute cuda kernel========\n");
     rc = hb_mc_device_tile_groups_execute(&device);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to execute tile groups.\n");
@@ -97,7 +96,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
                       .rst_base_addr=RMEM_ADDR0,
                       .dy_base_addr=RMEM_ADDR1+1,
                       .wT_base_addr=CONV1BP_ACT_ADDR, // just for conv1
-                      .dw_base_addr=CONV1BP_DW_ADDR
+                      .dw_base_addr=CONV1BP_DW_ADDR,
+                      .db_base_addr=CONV1BP_DB_ADDR
     };
     NN_layer CONV2 = {.input_size=CONV1_Y_SIZE, 
                       .output_size=CONV2_Y_SIZE,
@@ -114,6 +114,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
                       .dy_base_addr=RMEM_ADDR2+1,
                       .wT_base_addr=CONV2BP_WGT_ADDR,
                       .dw_base_addr=CONV2BP_DW_ADDR,
+                      .db_base_addr=CONV2BP_DB_ADDR,
                       .dx_base_addr=RMEM_ADDR1+1
     };
     NN_layer CONV3 = {.input_size=CONV2_Y_SIZE, 
@@ -131,6 +132,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
                       .dy_base_addr=RMEM_ADDR3+1,
                       .wT_base_addr=CONV3BP_WGT_ADDR,
                       .dw_base_addr=CONV3BP_DW_ADDR,
+                      .db_base_addr=CONV3BP_DB_ADDR,
                       .dx_base_addr=RMEM_ADDR2+1
     };
     NN_layer FC1 = {.input_size=CONV3_Y_SIZE, 
@@ -148,6 +150,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     .dy_base_addr=RMEM_ADDR4+1,
                     .wT_base_addr=FC1BP_WGT_ADDR,
                     .dw_base_addr=FC1BP_DW_ADDR,
+                    .db_base_addr=FC1BP_DB_ADDR,
                     .dx_base_addr=RMEM_ADDR3+1
     };
     NN_layer FC2 = {.input_size=FC1_Y_SIZE, 
@@ -164,6 +167,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     .rst_base_addr=FP_RST_ADDR,
                     .dy_base_addr=OUT_GD_ADDR,
                     .dw_base_addr=FC2BP_DW_ADDR,
+                    .db_base_addr=FC2BP_DB_ADDR,
                     .wT_base_addr=FC2BP_WGT_ADDR,
                     .dx_base_addr=RMEM_ADDR4+1
     };
@@ -249,23 +253,19 @@ int test_drlp_dqn_all (int argc, char **argv) {
     base_addr = FC2_WGT_ADDR;
     fc_fp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W, FC2_B, base_addr);
 
-    bsg_pr_test_info("Write weights to DRAM done!!!\n");
 
     /*****************************************************************************************************************
     * DQN  
     ******************************************************************************************************************/
     // Replay memory init
-    bsg_pr_test_info("Replay memory init\n");
+    bsg_pr_test_info("Replay memory initialization\n");
     uint32_t position = 0;
     Transition trans;
     call_reset(&trans, py_game);
-    bsg_pr_test_info("Reset done\n");
     for (int i = 0; i < RE_MEM_INIT_SIZE; i++) {
         trans.action = rand() % ACTION_SIZE;
         call_step(&trans, py_game);
-        bsg_pr_test_info("call step done\n");
         position = re_mem_push(mc, re_mem_npa, &trans, position);
-        bsg_pr_test_info("push done\n");
         if (trans.done==0) {
             for (int j=0; j<STATE_SIZE; j++)
                 trans.state[j] = trans.next_state[j];
@@ -274,7 +274,6 @@ int test_drlp_dqn_all (int argc, char **argv) {
             call_reset(&trans, py_game);
         }
     }
-    bsg_pr_test_info("Replay memory init done!!\n");
 
     // Training loop 
     int num_trans;
@@ -304,17 +303,18 @@ int test_drlp_dqn_all (int argc, char **argv) {
         while (!episode_done) {
             total_step++;
             step++;
-            bsg_pr_test_info("Step%d-------------------------------------\n", step);
+            bsg_pr_test_info("Step%d\n", step);
             // Perform one step
+            bsg_pr_test_info("Perform one action and store the trainsition into replay memory\n");
             float drlp_fp_r[ACTION_SIZE];
             dqn_act(mc, drlp_dram_eva, &trans, nn, num_layer, epsilon, drlp_fp_r);
             if (HOST_COMPARE) {
                 float torch_fp_r[ACTION_SIZE];
                 torch_forward(&trans, py_dqn, torch_fp_r); 
-                bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", 
-                        torch_fp_r[0], torch_fp_r[1], torch_fp_r[2],  torch_fp_r[3]);
-                bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",
-                        drlp_fp_r[0], drlp_fp_r[1], drlp_fp_r[2],  drlp_fp_r[3]);
+                /* bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",  */
+                        /* torch_fp_r[0], torch_fp_r[1], torch_fp_r[2],  torch_fp_r[3]); */
+                /* bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", */
+                        /* drlp_fp_r[0], drlp_fp_r[1], drlp_fp_r[2],  drlp_fp_r[3]); */
             }
 
             call_step(&trans, py_game);
@@ -352,7 +352,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
 
                 // Weight transpose and write
-                bsg_pr_test_info("Weight transpose and write\n");
+                /* bsg_pr_test_info("Weight transpose and write\n"); */
                 fc_bp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W);
                 fc_bp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W);
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV3, CONV3_W);
@@ -360,10 +360,10 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV1, sample_trans.state);
 
                 // Train
-                bsg_pr_test_info("DQN train\n");
+                bsg_pr_test_info("DQN train: \n");
                 dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
                 if (HOST_COMPARE) {
-                    bsg_pr_test_info("Compare gradients with host torch\n");
+                    bsg_pr_test_info("Compare gradients with PyTorch\n");
                     read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
                     read_fc_dw(mc, drlp_dram_eva, FC1_dW, FC1);
                     read_conv_dw(mc, drlp_dram_eva, CONV3_dW, CONV3);
@@ -385,15 +385,16 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
                     host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
                     host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
-
                 }
+                bsg_pr_test_info("Passed with no errors!\n");
 
                 // Optimizer
-                /* for (int i = 0; i < num_layer; i++) { */
-                    /* cuda_optimizer(device,  nn[i], drlp_dram_eva, LR); */
-                /* } */
                 cuda_optimizer(device, FC2, drlp_dram_eva, LR);
                 cuda_optimizer(device, FC1, drlp_dram_eva, LR);
+                cuda_optimizer(device, CONV3, drlp_dram_eva, LR);
+                cuda_optimizer(device, CONV2, drlp_dram_eva, LR);
+                cuda_optimizer(device, CONV1, drlp_dram_eva, LR);
+
                 if (HOST_COMPARE) {
                     static float HOST_FC1_W[FC1_W_SIZE], HOST_FC1_B[FC1_B_SIZE];
                     static float HOST_FC2_W[FC2_W_SIZE], HOST_FC2_B[FC2_B_SIZE];
@@ -405,9 +406,20 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     get_parameters(py_dqn, host_nn_w, host_nn_b, false);
                     read_fc_w(mc, drlp_dram_eva, FC2, FC2_W, FC2_B);
                     read_fc_w(mc, drlp_dram_eva, FC1, FC1_W, FC1_B);
+                    read_conv_w(mc, drlp_dram_eva, CONV3, CONV3_W, CONV3_B);
+                    read_conv_w(mc, drlp_dram_eva, CONV2, CONV2_W, CONV2_B);
+                    read_conv_w(mc, drlp_dram_eva, CONV1, CONV1_W, CONV1_B);
 
                     host_compare(HOST_FC2_W, FC2_W, FC2_W_SIZE);
+                    host_compare(HOST_FC2_B, FC2_B, FC2.bias_size);
                     host_compare(HOST_FC1_W, FC1_W, FC1_W_SIZE);
+                    host_compare(HOST_FC1_B, FC1_B, FC2.bias_size);
+                    host_compare(HOST_CONV3_W, CONV3_W, CONV3_W_SIZE);
+                    host_compare(HOST_CONV3_B, CONV3_B, CONV3.bias_size);
+                    host_compare(HOST_CONV2_W, CONV2_W, CONV2_W_SIZE);
+                    host_compare(HOST_CONV2_B, CONV2_B, CONV2.bias_size);
+                    host_compare(HOST_CONV1_W, CONV1_W, CONV1_W_SIZE);
+                    host_compare(HOST_CONV1_B, CONV1_B, CONV1.bias_size);
                 }
 
                 Py_DECREF(py_game);    

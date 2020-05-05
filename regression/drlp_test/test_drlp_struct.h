@@ -27,6 +27,7 @@ typedef struct {
 	uint32_t dw_base_addr;
 	uint32_t wT_base_addr;
 	uint32_t dx_base_addr;
+	uint32_t db_base_addr;
 	int pe_on;
 	int ymove;
 	int zmove;
