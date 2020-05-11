@@ -757,7 +757,6 @@ void fc_fp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer fc
     }
 }
 
-
 void conv_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *weight) {
     float number;
     int index;
@@ -874,7 +873,6 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
     uint32_t addr = nn.wT_base_addr;
     int total_row = nn.input_size;
     int total_col = nn.output_size;
-    // host_transpose(w, wT, nn.input_size, nn.output_size);
     
     if(nn.layer==4) {
         for (int z=0; z<32; z++) {
@@ -938,17 +936,6 @@ void fc_bp_wrt_wgt (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn
         }
     }
 }
-
-// void wgt_transpose_and_write (hb_mc_manycore_t *mc, hb_mc_npa_t drlp_dram_npa, NN_layer fc, float *w, float *wT) {
-//     int in_act_size = fc.input_size;
-//     int out_act_size = fc.output_size;
-//     host_transpose(w, wT, in_act_size, out_act_size);
-//     fc.input_size = out_act_size;
-//     fc.output_size = in_act_size;
-//     float zero_bias[1000] = {0.0};
-//     fc_fp_wrt_wgt(mc, drlp_dram_npa, fc, wT, zero_bias, fc.wT_base_addr);
-// }
-//
 
 void read_conv_w (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *weight, float *bias) {
     float number;
@@ -1107,7 +1094,174 @@ void read_fc_w (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer fc, fl
     }
 }
 
+void read_conv_wT (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *weight) {
+    float number;
+    int index;
+    uint32_t addr = nn.wT_base_addr;
+    
+    if(nn.layer==0){
+        float newA[64*4*23*18] = {0};
+        for (int ff=0; ff<4; ff++) {
+            for (int z=0; z<23; z++) {
+                for (int x=0; x<1; x++) {
+                    for (int y=0; y<64; y++) {
+                        for (int i_base=2; i_base>-1; i_base--) {
+                            for (int i=i_base*6; i<i_base*6+6; i++) {
+                                index = y + (x+ff)*64 + z*64*4 + i*64*4*23;
+                                eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &newA[index], false);
+                                number = newA[index];
+                                addr++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Action re-arrangement for conv1_dw
+        // (1,84,84,4)->(64,4,23,18)
+        for (int z=0; z<4; z++) {
+            for (int x_base=0; x_base<8; x_base++) {
+                for (int y_base=0; y_base<8; y_base++) {
+                    int i = 0;
+                    for (int x=x_base; x<x_base+80; x=x+4) {
+                        for (int y=y_base; y<y_base+80; y=y+4) {
+                            index = 8*x_base+y_base + z*64 + (i/18)*64*4 + (i%18)*64*4*23;
+                            number = newA[index];
+                            weight[x+y*84+z*84*84] = number;
+                            i++;
+                        }
+                    }
+                }
+            }
+        }
 
+    }
+    else if(nn.layer==1) {
+        // Weight re-arrangement for conv2 dx
+        // Rotate W 180 degree and swicth dim2 and dim3, then split to 4
+        for (int repeat=0; repeat<4; repeat++) {
+            for (int pe_split=0; pe_split<2; pe_split++) {
+                int pe_offset = pe_split*16;
+                // Bias
+                for (int i=0; i<16; i++) {
+                    number = 0.0;
+                    addr++;
+                }
+                // Weights
+                for (int z_i=0; z_i<16; z_i++) {
+                    for (int pe=0; pe<16; pe++) {
+                        for (int y=1; y>-1; y--) {
+                            for (int x=1; x>-1; x--) {
+                                for (int z=z_i*4; z<(z_i*4+4); z++) {
+                                    if (repeat == 0)
+                                        index = (3- (x*2+1)) + (3- (y*2+1))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
+                                    if (repeat == 1)
+                                        index = (3- (x*2)) + (3- (y*2+1))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
+                                    if (repeat == 2)
+                                        index = (3- (x*2+1)) + (3- (y*2))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
+                                    if (repeat == 3)
+                                        index = (3- (x*2)) + (3- (y*2))*4 + (pe+pe_offset)*4*4+ z*4*4*32;
+                                    eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &weight[index], false);
+                                    addr++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else {
+        // Weight re-arrangement for conv3 dx
+        // Rotate W 180 degree and swicth dim2 and dim3 
+        for (int pe_split=0; pe_split<4; pe_split++) {
+            int pe_offset = pe_split*16;
+            // Bias
+            for (int i=0; i<16; i++) {
+                addr++;
+            }
+            // Weights
+            for (int z=0; z<32; z++) {
+                for (int pe=0; pe<16; pe++) {
+                    for (int y=2; y>-1; y--) {
+                        for (int z_offset=0; z_offset<2; z_offset++) {
+                            for (int x=0; x<3; x++) {
+                                index = (2-x) + (2-y)*3 + (pe+pe_offset)*3*3+ (z*2+z_offset)*3*3*64;
+                                eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &weight[index], false);
+                                addr++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+void read_fc_wT (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, NN_layer nn, float *w) {
+    float number, read_data;
+    int index, index0, index1, index_T;
+    uint32_t addr = nn.wT_base_addr;
+    int total_row = nn.input_size;
+    int total_col = nn.output_size;
+    
+    if(nn.layer==4) {
+        for (int z=0; z<32; z++) {
+            for (int j=0; j<16; j++) {
+                // number = 0.0;
+                // eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
+                addr++;
+            }
+            for (int j=0; j<16; j++) {
+                for (int i=0; i<18; i++) {
+                    if (i>=4) {
+                        number = 0.0;
+                    }
+                    else {
+                        index_T = z+j*32 + i*(nn.input_size);
+                        index = (index_T%total_row)*total_col + (index_T/total_row);
+                        eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &w[index], false);
+                    }
+                    addr++;
+                }
+            }
+        }
+    }
+    else {
+        for (int repeat=0; repeat<7; repeat++) {
+            for (int slides=0; slides<29; slides++) {
+                for (int z=0; z<32; z++) {
+                    if (slides==0) {
+                        for (int j=0; j<16; j++) {
+                            addr++;
+                        }
+                    }
+                    else {
+                        if (z==0) {
+                            addr++;
+                        }
+                    }
+                    for (int j=0; j<16; j++) {
+                        for (int i=0; i<18; i++) {
+                            index0 = slides*18+i;
+                            index1 = (nn.output_size)*repeat + z + j*32;
+                            if (index0 >= (nn.output_size) || index1>=(nn.input_size)) {
+                                number = 0.0;
+                            }
+                            else {
+                                index_T = index0*(nn.input_size) + index1;
+                                index = (index_T%total_row)*total_col + (index_T/total_row);
+                                eva_offset_read_fp(mc, drlp_dram_eva, addr, 1, &w[index], false);
+                            }
+                            addr++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 void read_fc_dw (hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dW, NN_layer fc){
     int row = fc.input_size;
@@ -1411,7 +1565,7 @@ void nn_fp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *state, NN_lay
         }
     }
 
-    bsg_pr_test_info("========Call DRLP NN FP========\n");
+    // bsg_pr_test_info("========Call DRLP NN FP========\n");
     for (int i = 0; i < num_layer; i++) { 
         // bsg_pr_test_info("FP layer%d\n",i);
         if(nn[i].FC_CONV) {
@@ -1510,7 +1664,7 @@ void nn_bp(hb_mc_manycore_t *mc, hb_mc_eva_t drlp_dram_eva, float *dy, NN_layer 
         eva_offset_write_fp(mc, drlp_dram_eva, addr, number);
     }
 
-    bsg_pr_test_info("========Call DRLP NN BP========\n");
+    // bsg_pr_test_info("========Call DRLP NN BP========\n");
     // fc2_db
     for (int i = 0; i < ACTION_SIZE; i++)
         eva_offset_write_fp(mc, drlp_dram_eva, nn[4].db_base_addr+i, dy[i]);

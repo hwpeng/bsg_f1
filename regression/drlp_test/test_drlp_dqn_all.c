@@ -34,7 +34,7 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     eva_t w_eva = base_eva + (nn.wgt_base_addr<<2);
     eva_t wT_eva = base_eva + (nn.wT_base_addr<<2);
     eva_t dw_eva = base_eva + ((nn.dw_base_addr+1)<<2);
-    eva_t db_eva = base_eva + ((nn.db_base_addr)<<2);
+    eva_t db_eva = base_eva + (nn.db_base_addr<<2);
     int w_num = nn.weight_size;
     
     /* Define block_size_x/y: amount of work for each tile group */
@@ -67,6 +67,11 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
 int test_drlp_dqn_all (int argc, char **argv) {
 
     bsg_pr_test_info("Running DRLP-CUDA DQN Breakout test!\n");
+
+    double time_spent = 0.0;
+    clock_t begin = clock();
+
+    srand(0.1); 
 
     /*****************************************************************************************************************
     * Test game and python settings
@@ -200,11 +205,9 @@ int test_drlp_dqn_all (int argc, char **argv) {
         bsg_pr_test_info("Initialize program %s. \n", bin_path);
     }
 
-    /* Allocate memory on the device for W, dW, and W_NEW */
-    eva_t w_opt_eva[num_layer], dw_opt_eva[num_layer], w_new_opt_eva[num_layer];
-    eva_t b_opt_eva[num_layer], db_opt_eva[num_layer], b_new_opt_eva[num_layer];
-    optim_malloc(device, nn, num_layer, w_opt_eva, dw_opt_eva, w_new_opt_eva, b_opt_eva, db_opt_eva, b_new_opt_eva);
-
+    /*****************************************************************************************************************
+    * Memory allocation 
+    ******************************************************************************************************************/
     /* Allocate memory on the device for DRLP operation*/
     size_t drlp_dram_size = sizeof(uint32_t)*DRLP_DRAM_SIZE;
     hb_mc_eva_t drlp_dram_eva;
@@ -221,6 +224,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
     * Weight random initialization and write to dram
     ******************************************************************************************************************/
     // On the host
+    bsg_pr_test_info("Initialize weights randomly and write to DRAM\n");
     float CONV1_W[CONV1_W_SIZE];
     float CONV1_B[CONV1_B_SIZE] = {0.0};
     float CONV2_W[CONV2_W_SIZE];
@@ -233,14 +237,9 @@ int test_drlp_dqn_all (int argc, char **argv) {
     float FC2_B[FC2_B_SIZE] = {0.0};
     float *nn_w[] = {CONV1_W, CONV2_W, CONV3_W, FC1_W, FC2_W};
     float *nn_b[] = {CONV1_B, CONV2_B, CONV3_B, FC1_B, FC2_B};
-    bsg_pr_test_info("Initialize weights randomly and write to DRAM\n");
+
     get_parameters(py_dqn, nn_w, nn_b, false);
-    /* srand(0.1);  */
-    /* param_random(CONV1_W, CONV1_W_SIZE); */
-    /* param_random(CONV2_W, CONV2_W_SIZE); */
-    /* param_random(CONV3_W, CONV3_W_SIZE); */
-    /* param_random(FC1_W, FC1_W_SIZE); */
-    /* param_random(FC2_W, FC2_W_SIZE); */
+
     // To the device DRAM
     uint32_t base_addr = CONV1_WGT_ADDR;
     conv_fp_wrt_wgt(mc, drlp_dram_eva, CONV1, CONV1_W, CONV1_B, base_addr);
@@ -253,6 +252,12 @@ int test_drlp_dqn_all (int argc, char **argv) {
     base_addr = FC2_WGT_ADDR;
     fc_fp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W, FC2_B, base_addr);
 
+    // Weight transpose and write
+    bsg_pr_test_info("Weight transpose and write\n");
+    fc_bp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W);
+    fc_bp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W);
+    conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV3, CONV3_W);
+    conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV2, CONV2_W);
 
     /*****************************************************************************************************************
     * DQN  
@@ -278,19 +283,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
     // Training loop 
     int num_trans;
     bool re_mem_full = false;
-    bool compare_host = true;
     Transition sample_trans;
-    static float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_B_SIZE];
-    static float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_B_SIZE];
-    static float CONV3_dW[CONV3_W_SIZE], CONV3_dB[CONV3_B_SIZE];
-    static float CONV2_dW[CONV2_W_SIZE], CONV2_dB[CONV2_B_SIZE];
-    static float CONV1_dW[CONV1_W_SIZE], CONV1_dB[CONV1_B_SIZE];
-    float *nn_dw[] = {CONV1_dW, CONV2_dW, CONV3_dW, FC1_dW, FC2_dW};
-    float *nn_db[] = {CONV1_dB, CONV2_dB, CONV3_dB, FC1_dB, FC2_dB};
-    float host_fc2_w_new[FC2_W_SIZE];
-    float host_fc1_w_new[FC1_W_SIZE];
-    float host_fc2_b_new[FC2_B_SIZE];
-    float host_fc1_b_new[FC1_B_SIZE];
     
     float epsilon = MAX_EPSILON;
     int total_step = 0;
@@ -298,12 +291,16 @@ int test_drlp_dqn_all (int argc, char **argv) {
     float step_mean = 0.0;
     bool episode_done = false;
     for (int episode = 1; episode < EPISODE_MAX; episode++) {
+        bsg_pr_test_info("========Episode %d========\n", episode);
         episode_done = false;
         step = 0;
         while (!episode_done) {
+            clock_t step_start = clock();
+            double step_time_spent = 0.0;
+
             total_step++;
             step++;
-            bsg_pr_test_info("Step%d\n", step);
+            bsg_pr_test_info("Frame %d\n", step);
             // Perform one step
             bsg_pr_test_info("Perform one action and store the trainsition into replay memory\n");
             float drlp_fp_r[ACTION_SIZE];
@@ -311,10 +308,7 @@ int test_drlp_dqn_all (int argc, char **argv) {
             if (HOST_COMPARE) {
                 float torch_fp_r[ACTION_SIZE];
                 torch_forward(&trans, py_dqn, torch_fp_r); 
-                /* bsg_pr_test_info("Torch ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n",  */
-                        /* torch_fp_r[0], torch_fp_r[1], torch_fp_r[2],  torch_fp_r[3]); */
-                /* bsg_pr_test_info("DRLP  ACT: results[0]=%f results[1]=%f results[2]=%f results[3]=%f\n", */
-                        /* drlp_fp_r[0], drlp_fp_r[1], drlp_fp_r[2],  drlp_fp_r[3]); */
+                host_compare(torch_fp_r, drlp_fp_r, ACTION_SIZE, "fp");
             }
 
             call_step(&trans, py_game);
@@ -348,45 +342,22 @@ int test_drlp_dqn_all (int argc, char **argv) {
             // Training 
             if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
                 // Sample from replay memory
-                bsg_pr_test_info("Sample from replay memory\n");
+                bsg_pr_test_info("Sample one transition from replay memory\n");
                 re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
 
-                // Weight transpose and write
-                /* bsg_pr_test_info("Weight transpose and write\n"); */
-                fc_bp_wrt_wgt(mc, drlp_dram_eva, FC2, FC2_W);
-                fc_bp_wrt_wgt(mc, drlp_dram_eva, FC1, FC1_W);
-                conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV3, CONV3_W);
-                conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV2, CONV2_W);
+                // Write state for first layer BP
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV1, sample_trans.state);
 
                 // Train
-                bsg_pr_test_info("DQN train: \n");
+                bsg_pr_test_info("DQN train\n");
+                static float FC1_dW[FC1_W_SIZE], FC1_dB[FC1_B_SIZE];
+                static float FC2_dW[FC2_W_SIZE], FC2_dB[FC2_B_SIZE];
+                static float CONV3_dW[CONV3_W_SIZE], CONV3_dB[CONV3_B_SIZE];
+                static float CONV2_dW[CONV2_W_SIZE], CONV2_dB[CONV2_B_SIZE];
+                static float CONV1_dW[CONV1_W_SIZE], CONV1_dB[CONV1_B_SIZE];
+                float *nn_dw[] = {CONV1_dW, CONV2_dW, CONV3_dW, FC1_dW, FC2_dW};
+                float *nn_db[] = {CONV1_dB, CONV2_dB, CONV3_dB, FC1_dB, FC2_dB};
                 dqn_train(mc, drlp_dram_eva, &sample_trans, nn, num_layer, FC2_dB, 0.95);
-                if (HOST_COMPARE) {
-                    bsg_pr_test_info("Compare gradients with PyTorch\n");
-                    read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
-                    read_fc_dw(mc, drlp_dram_eva, FC1_dW, FC1);
-                    read_conv_dw(mc, drlp_dram_eva, CONV3_dW, CONV3);
-                    read_conv_dw(mc, drlp_dram_eva, CONV2_dW, CONV2);
-                    read_conv_dw(mc, drlp_dram_eva, CONV1_dW, CONV1);
-
-                    static float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
-                    static float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
-                    static float HOST_CONV3_dW[CONV3_W_SIZE], HOST_CONV3_dB[CONV3_B_SIZE];
-                    static float HOST_CONV2_dW[CONV2_W_SIZE], HOST_CONV2_dB[CONV2_B_SIZE];
-                    static float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
-                    float *host_nn_dw[] = {HOST_CONV1_dW, HOST_CONV2_dW, HOST_CONV3_dW, HOST_FC1_dW, HOST_FC2_dW};
-                    float *host_nn_db[] = {HOST_CONV1_dB, HOST_CONV2_dB, HOST_CONV3_dB, HOST_FC1_dB, HOST_FC2_dB};
-
-                    torch_train(&sample_trans, py_dqn, host_nn_dw, host_nn_db);
-
-                    host_compare(HOST_FC2_dW, FC2_dW, FC2_W_SIZE);
-                    host_compare(HOST_FC1_dW, FC1_dW, FC1_W_SIZE);
-                    host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE);
-                    host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE);
-                    host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE);
-                }
-                bsg_pr_test_info("Passed with no errors!\n");
 
                 // Optimizer
                 cuda_optimizer(device, FC2, drlp_dram_eva, LR);
@@ -395,7 +366,18 @@ int test_drlp_dqn_all (int argc, char **argv) {
                 cuda_optimizer(device, CONV2, drlp_dram_eva, LR);
                 cuda_optimizer(device, CONV1, drlp_dram_eva, LR);
 
+                clock_t step_end = clock();
+                step_time_spent += (double)(step_end - step_start) / CLOCKS_PER_SEC;
+                printf("Time elapsed is %f seconds\n", step_time_spent);
+
                 if (HOST_COMPARE) {
+                    static float HOST_FC1_dW[FC1_W_SIZE], HOST_FC1_dB[FC1_B_SIZE];
+                    static float HOST_FC2_dW[FC2_W_SIZE],  HOST_FC2_dB[FC2_B_SIZE];
+                    static float HOST_CONV3_dW[CONV3_W_SIZE], HOST_CONV3_dB[CONV3_B_SIZE];
+                    static float HOST_CONV2_dW[CONV2_W_SIZE], HOST_CONV2_dB[CONV2_B_SIZE];
+                    static float HOST_CONV1_dW[CONV1_W_SIZE], HOST_CONV1_dB[CONV1_B_SIZE];
+                    float *host_nn_dw[] = {HOST_CONV1_dW, HOST_CONV2_dW, HOST_CONV3_dW, HOST_FC1_dW, HOST_FC2_dW};
+                    float *host_nn_db[] = {HOST_CONV1_dB, HOST_CONV2_dB, HOST_CONV3_dB, HOST_FC1_dB, HOST_FC2_dB};
                     static float HOST_FC1_W[FC1_W_SIZE], HOST_FC1_B[FC1_B_SIZE];
                     static float HOST_FC2_W[FC2_W_SIZE], HOST_FC2_B[FC2_B_SIZE];
                     static float HOST_CONV3_W[CONV3_W_SIZE], HOST_CONV3_B[CONV3_B_SIZE];
@@ -403,29 +385,49 @@ int test_drlp_dqn_all (int argc, char **argv) {
                     static float HOST_CONV1_W[CONV1_W_SIZE], HOST_CONV1_B[CONV1_B_SIZE];
                     float *host_nn_w[] = {HOST_CONV1_W, HOST_CONV2_W, HOST_CONV3_W, HOST_FC1_W, HOST_FC2_W};
                     float *host_nn_b[] = {HOST_CONV1_B, HOST_CONV2_B, HOST_CONV3_B, HOST_FC1_B, HOST_FC2_B};
+
+                    // compare dw
+                    bsg_pr_test_info("Compare gradients with PyTorch\n");
+                    torch_train(&sample_trans, py_dqn, host_nn_dw, host_nn_db);
+                    read_fc_dw(mc, drlp_dram_eva, FC2_dW, FC2);
+                    read_fc_dw(mc, drlp_dram_eva, FC1_dW, FC1);
+                    read_conv_dw(mc, drlp_dram_eva, CONV3_dW, CONV3);
+                    read_conv_dw(mc, drlp_dram_eva, CONV2_dW, CONV2);
+                    read_conv_dw(mc, drlp_dram_eva, CONV1_dW, CONV1);
+                    host_compare(HOST_FC2_dW, FC2_dW, FC2_W_SIZE, "fc2_dw");
+                    host_compare(HOST_FC1_dW, FC1_dW, FC1_W_SIZE, "fc1_dw");
+                    host_compare(HOST_CONV3_dW, CONV3_dW, CONV3_W_SIZE, "conv3_dw");
+                    host_compare(HOST_CONV2_dW, CONV2_dW, CONV2_W_SIZE, "conv2_dw");
+                    host_compare(HOST_CONV1_dW, CONV1_dW, CONV1_W_SIZE, "conv1_dw");
+
+                    // compare new w for fp
+                    bsg_pr_test_info("Compare new weight with PyTorch\n");
                     get_parameters(py_dqn, host_nn_w, host_nn_b, false);
                     read_fc_w(mc, drlp_dram_eva, FC2, FC2_W, FC2_B);
                     read_fc_w(mc, drlp_dram_eva, FC1, FC1_W, FC1_B);
                     read_conv_w(mc, drlp_dram_eva, CONV3, CONV3_W, CONV3_B);
                     read_conv_w(mc, drlp_dram_eva, CONV2, CONV2_W, CONV2_B);
                     read_conv_w(mc, drlp_dram_eva, CONV1, CONV1_W, CONV1_B);
-
-                    host_compare(HOST_FC2_W, FC2_W, FC2_W_SIZE);
-                    host_compare(HOST_FC2_B, FC2_B, FC2.bias_size);
-                    host_compare(HOST_FC1_W, FC1_W, FC1_W_SIZE);
-                    host_compare(HOST_FC1_B, FC1_B, FC2.bias_size);
-                    host_compare(HOST_CONV3_W, CONV3_W, CONV3_W_SIZE);
-                    host_compare(HOST_CONV3_B, CONV3_B, CONV3.bias_size);
-                    host_compare(HOST_CONV2_W, CONV2_W, CONV2_W_SIZE);
-                    host_compare(HOST_CONV2_B, CONV2_B, CONV2.bias_size);
-                    host_compare(HOST_CONV1_W, CONV1_W, CONV1_W_SIZE);
-                    host_compare(HOST_CONV1_B, CONV1_B, CONV1.bias_size);
+                    host_compare(HOST_FC2_W, FC2_W, FC2_W_SIZE, "fc2 new W for FP");
+                    host_compare(HOST_FC1_W, FC1_W, FC1_W_SIZE, "fc1 new W for FP");
+                    host_compare(HOST_CONV3_W, CONV3_W, CONV3_W_SIZE, "conv3 new W for FP");
+                    host_compare(HOST_CONV2_W, CONV2_W, CONV2_W_SIZE, "conv2 new W for FP");
+                    host_compare(HOST_CONV1_W, CONV1_W, CONV1_W_SIZE, "conv1 new W for FP");
+                    host_compare(HOST_FC2_B, FC2_B, FC2.bias_size, "fc2 new B");
+                    host_compare(HOST_FC1_B, FC1_B, FC2.bias_size, "fc1 new B");
+                    host_compare(HOST_CONV3_B, CONV3_B, CONV3.bias_size, "conv3 new B");
+                    host_compare(HOST_CONV2_B, CONV2_B, CONV2.bias_size, "conv2 new B");
+                    host_compare(HOST_CONV1_B, CONV1_B, CONV1.bias_size, "conv1 new B");
+                    // compare new w for bp
+                    read_fc_wT(mc, drlp_dram_eva, FC2, FC2_W);
+                    read_fc_wT(mc, drlp_dram_eva, FC1, FC1_W);
+                    read_conv_wT(mc, drlp_dram_eva, CONV3, CONV3_W);
+                    read_conv_wT(mc, drlp_dram_eva, CONV2, CONV2_W);
+                    host_compare(HOST_FC2_W, FC2_W, FC2_W_SIZE, "fc2 new W for BP");
+                    host_compare(HOST_FC1_W, FC1_W, FC1_W_SIZE, "fc1 new W for BP");
+                    host_compare(HOST_CONV3_W, CONV3_W, CONV3_W_SIZE, "conv2 new W for BP");
+                    host_compare(HOST_CONV2_W, CONV2_W, CONV2_W_SIZE, "conv1 new W for BP");
                 }
-
-                Py_DECREF(py_game);    
-                Py_DECREF(py_dqn);    
-                Py_Finalize(); 
-                return HB_MC_SUCCESS;
 
                 if (epsilon*EPSILON_DECAY > MIN_EPSILON)
                     epsilon *= EPSILON_DECAY;
@@ -435,7 +437,11 @@ int test_drlp_dqn_all (int argc, char **argv) {
             }
         }
     }
-    
+
+    clock_t end = clock();
+    time_spent += (double)(end - begin) / CLOCKS_PER_SEC;
+    printf("Time elapsed is %f seconds\n", time_spent);
+
     /* Freeze the tiles and memory manager cleanup. */
     Py_DECREF(py_game);    
     Py_DECREF(py_dqn);    

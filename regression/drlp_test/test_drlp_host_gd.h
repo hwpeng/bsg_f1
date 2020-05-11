@@ -1,7 +1,7 @@
 #define hex(X) (*(int*)&X)
 #define flt(X) (*(float*)&X)
 
-int host_compare (float *expect, float *get, int size) {
+int host_compare (float *expect, float *get, int size, char *name) {
     float max_ferror = 0; 
     float ferror = 0;
     int mismatch = 0; 
@@ -9,8 +9,8 @@ int host_compare (float *expect, float *get, int size) {
 		ferror = hb_mc_calculate_float_error (expect[i], get[i]); 
         max_ferror = fmax (max_ferror, ferror);        
         if (ferror > 0.003 && fabsf(expect[i]) > 0.00005) {
-			bsg_pr_err(BSG_RED("Mismatch: ") "[%d]: %.32f\tExpected: %.32f\tRelative error: %.32f\n",
-            i, get[i], expect[i], ferror);
+			bsg_pr_err(BSG_RED("Mismatch: ") "%s[%d]: %.16f\tExpected: %.16f\tRelative error: %.16f\n",
+            name, i, get[i], expect[i], ferror);
         mismatch = 1;
 		}
 	}
@@ -142,8 +142,8 @@ int host_train (float *state, float *next_state, float reward, float done, uint3
 
 	// compare
 	int mismatch=0;
-	mismatch = host_compare (host_fc2_dw, fc2_dw, (fc1_y_size*action_size));
-	mismatch = host_compare (host_fc1_dw, fc1_dw, (state_size*fc1_y_size));
+	mismatch = host_compare (host_fc2_dw, fc2_dw, (fc1_y_size*action_size), "fc2 dw");
+	mismatch = host_compare (host_fc1_dw, fc1_dw, (state_size*fc1_y_size), "fc1 dw");
 	return mismatch;
 }
 
