@@ -45,10 +45,12 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
     hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
 
     /* Prepare list of input arguments for kernel. */
-    int cuda_argv[6] = {w_eva, wT_eva, dw_eva, db_eva, nn.layer, w_num, block_size_x};
+    int cuda_argv[17] = {2, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+        w_eva, wT_eva, dw_eva, db_eva, nn.layer, w_num, block_size_x};
 
     /* Enquque grid of tile groups, pass in grid and tile group dimensions, kernel name, number and list of input arguments */
-    rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 7, cuda_argv);
+    rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 17, cuda_argv);
     if (rc != HB_MC_SUCCESS) { 
             bsg_pr_err("failed to initialize grid.\n");
             return rc;
@@ -61,6 +63,82 @@ int cuda_optimizer (hb_mc_device_t device, NN_layer nn, hb_mc_eva_t base_eva, fl
             return rc;
     }
 
+}
+
+int cuda_re_mem (hb_mc_device_t device, int flag,
+        hb_mc_eva_t re_mem_state_eva, hb_mc_eva_t re_mem_next_state_eva, hb_mc_eva_t re_mem_reward_eva, hb_mc_eva_t re_mem_action_eva, hb_mc_eva_t re_mem_done_eva, 
+        Transition *trans, uint32_t position) {
+    int rc;
+
+    hb_mc_eva_t trans_state_eva, trans_next_state_eva, trans_others_eva, trans_action_eva, trans_done_eva;
+    rc = hb_mc_device_malloc(&device, sizeof(float)*STATE_SIZE, &trans_state_eva); 
+    rc = hb_mc_device_malloc(&device, sizeof(float)*STATE_SIZE, &trans_next_state_eva); 
+    rc = hb_mc_device_malloc(&device, sizeof(float)*128, &trans_others_eva); 
+
+    void *dst, *src;
+    if (flag == 0) {
+        dst = (void *) ((intptr_t) trans_state_eva);
+        src = (void *) &(trans->state[0]);
+        rc = hb_mc_device_memcpy (&device, dst, src, STATE_SIZE * sizeof(float), HB_MC_MEMCPY_TO_DEVICE);     
+
+        dst = (void *) ((intptr_t) trans_next_state_eva);
+        src = (void *) &(trans->next_state[0]);
+        rc = hb_mc_device_memcpy (&device, dst, src, STATE_SIZE * sizeof(float), HB_MC_MEMCPY_TO_DEVICE);     
+
+        float others[4] = {trans->reward, trans->action, trans->done};
+        dst = (void *) ((intptr_t) trans_others_eva);
+        src = (void *) &(others[0]);
+        rc = hb_mc_device_memcpy (&device, dst, src, sizeof(float)*4, HB_MC_MEMCPY_TO_DEVICE);
+    }
+
+    
+    hb_mc_dimension_t tg_dim = { .x = 2, .y = 2}; 
+    hb_mc_dimension_t grid_dim = { .x = 1, .y = 1}; 
+
+    int cuda_argv[17] = {flag, 
+        re_mem_state_eva, re_mem_next_state_eva, 
+        re_mem_reward_eva, re_mem_action_eva, re_mem_done_eva,
+        position, trans_state_eva, trans_next_state_eva, trans_others_eva, 
+        1024, 1024, 1024, 1024, 0, 64, 64};
+
+
+    /* bsg_pr_test_info("cuda_re_mem enqueue: flag=%d, position=%d \n",flag, position); */
+    rc = hb_mc_kernel_enqueue (&device, grid_dim, tg_dim, "kernel_optimizer", 17, cuda_argv);
+    if (rc != HB_MC_SUCCESS) { 
+            bsg_pr_err("failed to initialize grid.\n");
+    }
+
+    rc = hb_mc_device_tile_groups_execute(&device);
+    if (rc != HB_MC_SUCCESS) { 
+            bsg_pr_err("failed to execute tile groups.\n");
+    }
+
+    if (flag == 1) {
+        src = (void *) ((intptr_t) trans_state_eva);
+        dst = (void *) &(trans->state[0]);
+        rc = hb_mc_device_memcpy (&device, (void *) dst, src, sizeof(float)*STATE_SIZE, HB_MC_MEMCPY_TO_HOST);
+
+        src = (void *) ((intptr_t) trans_next_state_eva);
+        dst = (void *) &(trans->next_state[0]);
+        rc = hb_mc_device_memcpy (&device, (void *) dst, src, sizeof(float)*STATE_SIZE, HB_MC_MEMCPY_TO_HOST);
+
+        float aaa[4];
+        src = (void *) ((intptr_t) trans_others_eva);
+        dst = (void *) &aaa[0];
+        rc = hb_mc_device_memcpy (&device, (void *) dst, src, sizeof(float)*4, HB_MC_MEMCPY_TO_HOST);
+        if (rc != HB_MC_SUCCESS) { 
+             bsg_pr_err("failed to reward.\n");
+        }
+        trans->reward = aaa[0];
+        trans->action = aaa[1];
+        trans->done = aaa[2];
+
+    }
+    
+    if ((position+1)==RE_MEM_SIZE)
+        return 0;
+    else
+        return position+1;
 }
 
 
@@ -216,9 +294,24 @@ int test_drlp_dqn_all (int argc, char **argv) {
     bsg_pr_test_info("DRLP dram eva: %x\n", drlp_dram_eva);
 
     /* Allocate memory on the device for replay memory*/
-    size_t re_mem_size = sizeof(uint32_t)*TRANSITION_SIZE*RE_MEM_SIZE;
-    hb_mc_npa_t re_mem_npa;
-    malloc_npa(device, re_mem_size, &re_mem_npa);
+    hb_mc_eva_t re_mem_state_eva, re_mem_next_state_eva, re_mem_reward_eva, re_mem_action_eva, re_mem_done_eva;
+    hb_mc_device_malloc(&device, sizeof(float)*STATE_SIZE*RE_MEM_SIZE, &re_mem_state_eva); 
+    bsg_pr_test_info("state eva: %x\n", re_mem_state_eva);
+    hb_mc_device_malloc(&device, sizeof(float)*STATE_SIZE*RE_MEM_SIZE, &re_mem_next_state_eva); 
+    bsg_pr_test_info("next state eva: %x\n", re_mem_next_state_eva);
+
+    rc = hb_mc_device_malloc(&device, sizeof(float)*RE_MEM_SIZE, &re_mem_reward_eva); 
+    if (rc != HB_MC_SUCCESS) { 
+            bsg_pr_err("failed to initialize reward.\n");
+            return rc;
+    }
+    bsg_pr_test_info("reward eva: %x\n", re_mem_reward_eva);
+
+    hb_mc_device_malloc(&device, sizeof(uint32_t)*RE_MEM_SIZE, &re_mem_action_eva); 
+    bsg_pr_test_info("action eva: %x\n", re_mem_action_eva);
+    hb_mc_device_malloc(&device, sizeof(uint32_t)*RE_MEM_SIZE, &re_mem_done_eva); 
+    bsg_pr_test_info("done eva: %x\n", re_mem_done_eva);
+
 
     /*****************************************************************************************************************
     * Weight random initialization and write to dram
@@ -270,7 +363,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
     for (int i = 0; i < RE_MEM_INIT_SIZE; i++) {
         trans.action = rand() % ACTION_SIZE;
         call_step(&trans, py_game);
-        position = re_mem_push(mc, re_mem_npa, &trans, position);
+        /* position = re_mem_push(mc, re_mem_npa, &trans, position); */
+        position = cuda_re_mem(device, 0, re_mem_state_eva, re_mem_next_state_eva, re_mem_reward_eva, re_mem_action_eva, re_mem_done_eva, &trans, position);
         if (trans.done==0) {
             for (int j=0; j<STATE_SIZE; j++)
                 trans.state[j] = trans.next_state[j];
@@ -314,7 +408,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
             call_step(&trans, py_game);
 
             // Push to replay memory 
-            position = re_mem_push(mc, re_mem_npa, &trans, position);
+            /* position = re_mem_push(mc, re_mem_npa, &trans, position); */
+            position = cuda_re_mem(device, 0, re_mem_state_eva, re_mem_next_state_eva, re_mem_reward_eva, re_mem_action_eva, re_mem_done_eva, &trans, position);
             if (position == 0)
                 re_mem_full = true;
             if (re_mem_full)
@@ -343,7 +438,8 @@ int test_drlp_dqn_all (int argc, char **argv) {
             if ((total_step%TRAIN_FREQ==0) && (episode_done==false)) {
                 // Sample from replay memory
                 bsg_pr_test_info("Sample one transition from replay memory\n");
-                re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans);
+                /* re_mem_sample(mc, re_mem_npa, &sample_trans, num_trans); */
+                cuda_re_mem(device, 1, re_mem_state_eva, re_mem_next_state_eva, re_mem_reward_eva, re_mem_action_eva, re_mem_done_eva, &sample_trans, 1);
 
                 // Write state for first layer BP
                 conv_bp_wrt_wgt(mc, drlp_dram_eva, CONV1, sample_trans.state);
